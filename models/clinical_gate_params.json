@@ -1,0 +1,7 @@
+{
+  "sirs_min": 0,
+  "qsofa_min": 0,
+  "lactate_risk_min": 0,
+  "shock_index_max_for_gate": 0.75,
+  "cap_probability": 0.1
+}

@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
+*.ipynb
+
+# Research / training data
+dataset/
+training_setA/
+training_setB/
+processed_data/
+notebooks/
+
+# Training scripts
+preprocess.py
+train_models.py
+
+# Environment
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+env/
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Streamlit cache
+.streamlit/cache/
