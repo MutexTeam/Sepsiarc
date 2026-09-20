@@ -428,3 +428,37 @@ def section_title(text: str, subtitle: str = ""):
     st.markdown("### " + text)
     if subtitle:
         st.caption(subtitle)
+
+
+# ── Clinical disclaimer banner ─────────────────────────────────────────────────
+def render_disclaimer_banner():
+    """Compact clinical disclaimer bar shown at top of assessment pages."""
+    st.markdown(
+        '<div style="background:#FFF7ED;border-left:4px solid #F59E0B;'
+        'padding:0.5rem 1.1rem;border-radius:6px;margin-bottom:0.8rem;'
+        'font-size:0.75rem;color:#92400E;">'
+        '⚠️ <b>Clinical Decision-Support Tool Only.</b> '
+        'All predictions must be interpreted by a qualified healthcare professional. '
+        'This tool does not constitute a diagnosis or treatment order.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# ── Risk badge HTML helper ─────────────────────────────────────────────────────
+def risk_badge_html(label: str, level: str = "low") -> str:
+    """
+    Returns an inline HTML badge for risk level display.
+    level: 'high' | 'medium' | 'low'
+    """
+    colours = {
+        "high":   ("#FEE2E2", "#991B1B"),
+        "medium": ("#FEF3C7", "#B45309"),
+        "low":    ("#DCFCE7", "#166534"),
+    }
+    bg, fg = colours.get(level, colours["low"])
+    return (
+        f'<span style="background:{bg};color:{fg};padding:0.25rem 0.75rem;'
+        f'border-radius:20px;font-size:0.78rem;font-weight:700;'
+        f'letter-spacing:0.5px;">{label}</span>'
+    )

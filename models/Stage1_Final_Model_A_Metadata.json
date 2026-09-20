@@ -1,0 +1,17 @@
+{
+    "model_name": "Regularized Cost-Sensitive XGBoost - Model A",
+    "threshold": 0.14300000000000002,
+    "max_depth": 4,
+    "min_child_weight": 5,
+    "gamma": 0.1,
+    "reg_alpha": 0.1,
+    "reg_lambda": 2.0,
+    "scale_pos_weight": 3,
+    "learning_rate": 0.03,
+    "n_estimators": 1200,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "early_stopping_rounds": 60,
+    "random_state": 42,
+    "validation_pr_auc": 0.1728
+}

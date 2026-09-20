@@ -1,13 +1,18 @@
 """
-pages/4_Model_Information.py  --  SepsiArc Model Information
-Transparency page: model names, versions, thresholds, metrics, feature contracts.
+pages/4_Model_Information.py  --  SepsiArc Research & Model Information
+Updated to reflect:
+  Stage 1: Regularized Cost-Sensitive XGBoost Model A (135 features, threshold 0.143)
+  Stage 2: LightGBM post-sepsis risk model (65 features, threshold 0.58)
+Input: PSV/CSV file upload for both stages
 """
 import streamlit as st
 import json, joblib, os, sys
+import pandas as pd
 
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
     sys.path.insert(0, _root)
+
 from utils.ui_components import (
     render_header, render_footer, render_sidebar,
     render_disclaimer_banner,
@@ -15,271 +20,533 @@ from utils.ui_components import (
 )
 
 st.set_page_config(
-    page_title="SepsiArc – Model Information",
+    page_title="SepsiArc – Research & Model Information",
     page_icon="📊",
     layout="wide",
 )
 
 render_header(
-    page_title="Model Information",
-    page_subtitle="Research transparency: model names, thresholds, evaluation metrics, and feature contracts.",
+    page_title="Research & Model Information",
+    page_subtitle="Model architecture, evaluation metrics, feature engineering, and dual-stage pipeline transparency.",
     icon="📊",
 )
 render_sidebar("models")
 render_disclaimer_banner()
 
 st.info(
-    "Model information is provided for research and transparency purposes. "
-    "Evaluation metrics are from the **project test set** and are not live clinical performance measurements.",
+    "All evaluation metrics are from the **project held-out test set** using "
+    "**patient-level stratified splitting** (no patient-level data leakage). "
+    "Results are for research transparency and are not live clinical performance measurements.",
     icon="ℹ️"
 )
 
-# ── Load model metadata ────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# LOAD MODEL ARTIFACTS
+# ══════════════════════════════════════════════════════════════════════════════
 @st.cache_data
-def load_model_metadata():
-    mdir = "models"
-    s1_results = json.load(open(os.path.join(mdir, "model_results.json")))
-    s2_results = json.load(open(os.path.join(mdir, "stage2_results.json")))
-    best_name  = open(os.path.join(mdir, "best_model_name.txt")).read().strip()
-    s1_thresh  = float(joblib.load(os.path.join(mdir, "sepsis_threshold.pkl")))
-    s2_thresh  = float(joblib.load(os.path.join(mdir, "stage2_threshold.pkl")))
-    s1_feats   = json.load(open(os.path.join(mdir, "feature_names.json")))
-    s2_feats   = json.load(open(os.path.join(mdir, "stage2_feature_names.json")))
-    gate       = json.load(open(os.path.join(mdir, "clinical_gate_params.json")))
-    return s1_results, s2_results, best_name, s1_thresh, s2_thresh, s1_feats, s2_feats, gate
+def load_all_metadata():
+    mdir = os.path.join(_root, "models")
+    # Stage 1 — new XGBoost model
+    with open(os.path.join(mdir, "Stage1_Final_Model_A_Metadata.json")) as f:
+        s1_meta = json.load(f)
+    s1_feat_imp = pd.read_csv(os.path.join(mdir, "Stage1_FeatureImportance.csv"))
+    # Stage 2 — LightGBM
+    with open(os.path.join(mdir, "stage2_results.json")) as f:
+        s2_results = json.load(f)
+    s2_thresh = float(joblib.load(os.path.join(mdir, "stage2_threshold.pkl")))
+    with open(os.path.join(mdir, "stage2_feature_names.json")) as f:
+        s2_feats = json.load(f)
+    return s1_meta, s1_feat_imp, s2_results, s2_thresh, s2_feats
 
 try:
-    s1_results, s2_results, best_name, s1_thresh, s2_thresh, s1_feats, s2_feats, gate = load_model_metadata()
+    s1_meta, s1_feat_imp, s2_results, s2_thresh, s2_feats = load_all_metadata()
     meta_ok = True
 except Exception as e:
-    st.error(f"Could not load model metadata: {str(e)[:120]}")
+    st.error(f"Could not load model metadata: {str(e)[:160]}")
     meta_ok = False
 
 if not meta_ok:
     render_footer()
     st.stop()
 
-s1_best = s1_results.get(best_name, next(iter(s1_results.values())))
+s1_thresh = float(s1_meta.get("threshold", 0.143))
 
-# ── STAGE 1 MODEL ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# DUAL-STAGE PIPELINE OVERVIEW
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
-st.markdown(f"## Stage 1 — Sepsis Detection")
+st.markdown("## 🔄 Dual-Stage Pipeline Overview")
+
+st.markdown(f"""
+<div style="background:#fff;border-radius:14px;padding:1.6rem 2rem;
+            box-shadow:0 2px 12px rgba(0,0,0,0.08);font-size:0.83rem;
+            color:{SLATE_700};line-height:2;">
+
+  <b style="color:{NAVY};font-size:0.95rem;">Input</b><br>
+  PSV or CSV file → one patient → multiple hourly ICU observation rows
+  <br><br>
+
+  <b style="color:{TEAL};font-size:0.95rem;">Stage 1 — Sepsis Detection</b><br>
+  Raw file → drop sparse columns → chronological sort →
+  18 missingness indicators + 18 recency features → causal forward fill →
+  24 lag/change features → 48 rolling statistics → 5 clinical derived features →
+  <b>135 total features</b> → XGBoost Model A →
+  probability per hour → peak probability vs threshold (0.143) →
+  SEPSIS ALERT / BORDERLINE / LOW RISK + SHAP explanation
+  <br><br>
+
+  <b style="color:{RED};font-size:0.95rem;">Stage 2 — Post-Sepsis Risk Assessment</b><br>
+  (Accessible only after Stage 1 ALERT or BORDERLINE) →
+  Same file → MAP derivation → forward fill → 10 clinical derived features →
+  12 rolling 3h statistics → 15 lag/delta features → 2 ICU timing features →
+  <b>65 total features</b> → LightGBM model →
+  probability per hour → peak probability vs threshold (0.58) →
+  HIGH RISK / LOW RISK + SHAP explanation
+  <br><br>
+
+  <b style="color:{NAVY};">Key Design Principles</b><br>
+  • Patient-level data splitting — zero patient overlap between train/validation/test<br>
+  • Causal forward fill only — no future-information leakage in time-series features<br>
+  • Threshold selected on validation set only — test set untouched during selection<br>
+  • Missingness encoded as features — absence of measurements carries clinical signal<br>
+  • SHAP explanations use actual model internals — not approximations
+
+</div>
+""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STAGE 1
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("## 🔬 Stage 1 — Sepsis Detection")
 
 s1c1, s1c2, s1c3 = st.columns(3)
 
 with s1c1:
     st.markdown(f"""
-<div style="background:#fff; border-radius:14px; padding:1.4rem 1.6rem;
-            box-shadow:0 2px 12px rgba(0,0,0,0.08); border-top:5px solid {TEAL};">
-  <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.6rem;">Model</div>
-  <div style="font-size:1.1rem; font-weight:700; color:{NAVY};">{best_name}</div>
-  <div style="font-size:0.72rem; color:{SLATE_400}; margin-top:4px;">Deployed Stage 1 artifact</div>
+<div style="background:#fff;border-radius:14px;padding:1.4rem 1.6rem;
+            box-shadow:0 2px 12px rgba(0,0,0,0.08);border-top:5px solid {TEAL};height:100%;">
+  <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.4rem;">Algorithm</div>
+  <div style="font-size:1.1rem;font-weight:800;color:{NAVY};">XGBoost</div>
+  <div style="font-size:0.72rem;color:{SLATE_400};margin-top:2px;">
+    Regularized Cost-Sensitive — Model A
+  </div>
 
-  <div style="margin-top:1rem; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.4rem;">Purpose</div>
-  <div style="font-size:0.85rem; color:{SLATE_700};">Early sepsis detection from ICU clinical data</div>
+  <div style="margin-top:1.1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.3rem;">Decision Threshold</div>
+  <div style="font-size:2rem;font-weight:800;color:{TEAL};">{s1_thresh:.3f}</div>
+  <div style="font-size:0.72rem;color:{SLATE_400};">
+    Probability ≥ {s1_thresh:.3f} → SEPSIS ALERT<br>
+    Probability ≥ 0.08 → BORDERLINE
+  </div>
 
-  <div style="margin-top:1rem; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.4rem;">Decision Threshold</div>
-  <div style="font-size:1.6rem; font-weight:800; color:{TEAL};">{s1_thresh:.2f}</div>
-  <div style="font-size:0.72rem; color:{SLATE_400};">Probability ≥ {s1_thresh:.2f} → SEPSIS POSITIVE</div>
+  <div style="margin-top:1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.3rem;">Features</div>
+  <div style="font-size:1.3rem;font-weight:700;color:{NAVY};">135 engineered features</div>
 
-  <div style="margin-top:1rem; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.4rem;">Feature Count</div>
-  <div style="font-size:1.3rem; font-weight:700; color:{NAVY};">{len(s1_feats)} features</div>
+  <div style="margin-top:1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.3rem;">Hyperparameters</div>
+  <div style="font-size:0.75rem;color:{SLATE_700};line-height:1.9;">
+    max_depth = {s1_meta.get('max_depth', 4)}<br>
+    min_child_weight = {s1_meta.get('min_child_weight', 5)}<br>
+    gamma = {s1_meta.get('gamma', 0.1)}<br>
+    reg_alpha = {s1_meta.get('reg_alpha', 0.1)}<br>
+    reg_lambda = {s1_meta.get('reg_lambda', 2.0)}<br>
+    scale_pos_weight = {s1_meta.get('scale_pos_weight', 3)}<br>
+    learning_rate = {s1_meta.get('learning_rate', 0.03)}<br>
+    subsample = {s1_meta.get('subsample', 0.8)}<br>
+    n_estimators (max) = {s1_meta.get('n_estimators', 1200)}<br>
+    early_stopping = {s1_meta.get('early_stopping_rounds', 60)} rounds
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
 with s1c2:
     st.markdown(f"""
-<div style="background:#fff; border-radius:14px; padding:1.4rem 1.6rem;
-            box-shadow:0 2px 12px rgba(0,0,0,0.08); border-top:5px solid {TEAL};">
-  <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.8rem;">
-    Evaluation Metrics (Project Test Set)
+<div style="background:#fff;border-radius:14px;padding:1.4rem 1.6rem;
+            box-shadow:0 2px 12px rgba(0,0,0,0.08);border-top:5px solid {TEAL};">
+  <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.8rem;">
+    Test Set Metrics (Held-Out)
   </div>
 """, unsafe_allow_html=True)
-    for metric, val in [
-        ("AUROC",     s1_best.get("AUROC", 0)),
-        ("AUPRC",     s1_best.get("AUPRC", 0)),
-        ("F1 Score",  s1_best.get("F1", 0)),
-        ("Precision", s1_best.get("Precision", 0)),
-        ("Recall",    s1_best.get("Recall", 0)),
+    for metric, val, note in [
+        ("AUROC",     0.7587, "Threshold-independent ranking"),
+        ("PR-AUC",    0.1605, "Positive-class ranking (imbalanced)"),
+        ("Recall",    0.7097, "70.97% of sepsis hours detected"),
+        ("Precision", 0.1120, "Low due to high-recall strategy"),
+        ("F1 Score",  0.1935, "Harmonic mean at threshold 0.143"),
+        ("Accuracy",  0.6805, "Reduced by low-threshold strategy"),
     ]:
-        bar_pct = min(int(val * 100), 100)
+        bar_pct   = min(int(val * 100), 100)
         bar_color = GREEN if val >= 0.7 else AMBER if val >= 0.5 else RED
         st.markdown(f"""
-<div style="margin-bottom:0.7rem;">
-  <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-    <span style="font-size:0.78rem; color:{SLATE_700}; font-weight:500;">{metric}</span>
-    <span style="font-size:0.78rem; color:{NAVY}; font-weight:700;">{val:.4f}</span>
+<div style="margin-bottom:0.6rem;">
+  <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+    <span style="font-size:0.78rem;color:{SLATE_700};font-weight:500;">{metric}</span>
+    <span style="font-size:0.78rem;color:{NAVY};font-weight:700;">{val:.4f}</span>
   </div>
-  <div style="background:{SLATE_200}; border-radius:999px; height:6px; overflow:hidden;">
-    <div style="background:{bar_color}; width:{bar_pct}%; height:100%; border-radius:999px;"></div>
+  <div style="background:{SLATE_200};border-radius:999px;height:6px;overflow:hidden;">
+    <div style="background:{bar_color};width:{bar_pct}%;height:100%;border-radius:999px;"></div>
   </div>
+  <div style="font-size:0.67rem;color:{SLATE_400};margin-top:1px;">{note}</div>
 </div>
 """, unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(f"""
+<div style="background:#E0F7FA;border-radius:10px;padding:0.8rem 1rem;
+            margin-top:0.8rem;font-size:0.75rem;color:#0D2137;line-height:1.7;">
+  <b>Why is accuracy 68%?</b><br>
+  The threshold was deliberately set to 0.143 (vs. standard 0.5) to maximise recall.
+  At threshold 0.5, the model detects only ~2% of sepsis cases despite 94% accuracy.
+  The project prioritises detecting more sepsis cases over overall classification accuracy.
+</div>
+""", unsafe_allow_html=True)
 
 with s1c3:
     st.markdown(f"""
-<div style="background:#fff; border-radius:14px; padding:1.4rem 1.6rem;
-            box-shadow:0 2px 12px rgba(0,0,0,0.08); border-top:5px solid {TEAL};">
-  <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.6rem;">Clinical Gating Parameters</div>
-  <div style="font-size:0.78rem; color:{SLATE_700}; line-height:1.8;">
-    <b>Purpose:</b> Reduce false alarms when no clinical sepsis criteria are met.<br>
-    <b>Condition:</b> SIRS = 0 AND qSOFA = 0 AND Lactate risk = 0 AND Shock Index &lt; {gate.get('shock_index_max_for_gate', 0.75)}<br>
-    <b>Action:</b> Cap probability at {gate.get('cap_probability', 0.10):.0%} when all gate conditions met<br><br>
-    <b>Gate loaded from:</b> <code>clinical_gate_params.json</code>
+<div style="background:#fff;border-radius:14px;padding:1.4rem 1.6rem;
+            box-shadow:0 2px 12px rgba(0,0,0,0.08);border-top:5px solid {TEAL};">
+  <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.6rem;">Training Dataset</div>
+  <div style="font-size:0.78rem;color:{SLATE_700};line-height:1.9;">
+    <b>Source:</b> PhysioNet CinC Challenge 2019<br>
+    <b>Patients (original):</b> 40,336<br>
+    <b>Patients (after selection):</b> 11,932<br>
+    <b>Train:</b> 7,636 patients / 320,296 rows<br>
+    <b>Validation:</b> 1,909 patients / 80,593 rows<br>
+    <b>Test:</b> 2,387 patients / 102,564 rows<br>
+    <b>Sepsis rate (rows):</b> ~5.5%<br>
+    <b>Split:</b> Patient-level stratified (64/16/20)
   </div>
-  <div style="margin-top:1rem; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.4rem;">Training Dataset</div>
-  <div style="font-size:0.78rem; color:{SLATE_700}; line-height:1.8;">
-    PhysioNet CinC Challenge 2019<br>
-    40,336 ICU patients<br>
-    1.55M hourly observations<br>
-    Sepsis rate: ~1.8%
+
+  <div style="margin-top:1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.4rem;">
+    Class Imbalance Handling
+  </div>
+  <div style="font-size:0.78rem;color:{SLATE_700};line-height:1.9;">
+    <b>scale_pos_weight = 3</b> (cost-sensitive learning)<br>
+    No SMOTE — class weighting applied at training<br>
+    Threshold lowered to 0.143 for ≥70% recall target
+  </div>
+
+  <div style="margin-top:1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.4rem;">
+    Validation PR-AUC
+  </div>
+  <div style="font-size:1.4rem;font-weight:800;color:{TEAL};">
+    {s1_meta.get('validation_pr_auc', 0.1728):.4f}
+  </div>
+  <div style="font-size:0.72rem;color:{SLATE_400};">
+    Best configuration (Model A) selected on this metric
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Stage 1 model comparison ──────────────────────────────────────────────────
+# ── Stage 1 Feature Engineering Breakdown ─────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
-with st.expander("📈 Stage 1 — All Model Comparison (Project Evaluation)", expanded=False):
-    st.caption("All models evaluated on the same held-out test set. The deployed model is highlighted.")
-    rows = []
-    for name, metrics in s1_results.items():
-        rows.append({
-            "Model":      name,
-            "AUROC":      f"{metrics.get('AUROC', 0):.4f}",
-            "AUPRC":      f"{metrics.get('AUPRC', 0):.4f}",
-            "F1":         f"{metrics.get('F1', 0):.4f}",
-            "Precision":  f"{metrics.get('Precision', 0):.4f}",
-            "Recall":     f"{metrics.get('Recall', 0):.4f}",
-            "Threshold":  f"{metrics.get('Threshold', 0):.4f}",
-            "Deployed":   "✅ Deployed" if name == best_name else "",
-        })
-    import pandas as pd
-    df = pd.DataFrame(rows)
-    st.dataframe(df, use_container_width=True, hide_index=True)
-    st.caption("Note: These metrics include SMOTE, calibration, and other pipeline variants.")
-
-# ── STAGE 1 FEATURE CONTRACT ─────────────────────────────────────────────────
-with st.expander("🔍 Stage 1 — Feature Contract (79 features)", expanded=False):
-    # Split into clinical inputs vs derived
-    raw_inputs = [
-        "HR", "O2Sat", "Temp", "SBP", "MAP", "DBP", "Resp",
-        "Creatinine", "WBC", "Platelets", "Glucose", "Lactate",
-        "Age", "Gender", "ICULOS",
-        "Unit1", "Unit2", "HospAdmTime",
-        "BaseExcess", "HCO3", "FiO2", "pH", "PaCO2",
-        "BUN", "Calcium", "Magnesium", "Phosphate", "Potassium",
-        "Bilirubin_total", "Hct", "Hgb", "PTT",
+with st.expander("🔧 Stage 1 — Feature Engineering Breakdown (135 features)", expanded=False):
+    fe_cols = st.columns(4)
+    groups = [
+        ("Raw Clinical Inputs", "22 features",
+         ["HR","O2Sat","Temp","SBP","MAP","DBP","Resp","BUN","Calcium","Creatinine",
+          "Glucose","Lactate","Hct","Hgb","WBC","Platelets","Age","Gender",
+          "HospAdmTime","ICULOS","Potassium","Magnesium"],
+         TEAL, "#E0F7FA"),
+        ("Missingness Indicators\n(×18)", "18 features",
+         ["<var>_was_missing (binary)\nfor each of 18 clinical variables"],
+         "#4338CA","#EEF2FF"),
+        ("Time-Since-Last\nMeasurement (×18)", "18 features",
+         ["<var>_hours_since_last\nhours since last observed value\nfor each of 18 variables"],
+         "#7C3AED","#F5F3FF"),
+        ("Lag & Change\nFeatures (×6 vars)", "24 features",
+         ["HR_lag1, HR_lag3","HR_change1h, HR_change3h",
+          "same for O2Sat,Temp,MAP,Resp,SBP"],
+         AMBER,"#FEF3C7"),
     ]
-    derived = [f for f in s1_feats if f not in raw_inputs]
+    for col, (title, count, items, color, bg) in zip(fe_cols, groups):
+        col.markdown(f"""
+<div style="background:{bg};border-radius:10px;padding:0.9rem;border-top:3px solid {color};
+            height:100%;font-size:0.75rem;">
+  <div style="font-weight:700;color:{NAVY};margin-bottom:0.2rem;">{title}</div>
+  <div style="font-size:0.7rem;color:{color};font-weight:700;margin-bottom:0.5rem;">{count}</div>
+  {''.join(f'<div style="color:{SLATE_700};margin-bottom:1px;">• {i}</div>' for i in items)}
+</div>""", unsafe_allow_html=True)
 
-    fc1, fc2 = st.columns(2)
-    with fc1:
-        st.markdown(f"**Clinical Inputs ({len(raw_inputs)} fields)**")
-        st.caption("Entered by user or populated with clinical defaults")
-        for i, f in enumerate(raw_inputs):
-            st.markdown(f"<span style='font-size:0.8rem; font-family:monospace; background:#F1F5F9; padding:2px 6px; border-radius:4px; margin:1px; display:inline-block;'>{f}</span>", unsafe_allow_html=True)
-    with fc2:
-        st.markdown(f"**Derived Features ({len(derived)} features)**")
-        st.caption("Automatically calculated by SepsiArc — not editable by user")
-        for f in derived:
-            st.markdown(f"<span style='font-size:0.8rem; font-family:monospace; background:#ECFDF5; padding:2px 6px; border-radius:4px; margin:1px; display:inline-block;'>{f}</span>", unsafe_allow_html=True)
+    fe_cols2 = st.columns(3)
+    groups2 = [
+        ("Rolling Window Stats\n(3h & 6h × 4 stats × 6 vars)", "48 features",
+         ["mean, min, max, std over 3h and 6h",
+          "for HR, O2Sat, Temp, MAP, Resp, SBP"],
+         "#0891B2","#ECFEFF"),
+        ("Clinical Derived", "5 features",
+         ["Shock_Index = HR÷SBP",
+          "Pulse_Pressure = SBP−DBP",
+          "MAP_Ratio = MAP÷SBP",
+          "SIRS_partial (0–3 score)",
+          "Low_MAP (MAP<65 flag)"],
+         RED,"#FFF1F2"),
+        ("Dropped Sparse Columns", "Excluded from model",
+         ["PTT, SaO2, Phosphate, HCO3","Chloride, EtCO2, BaseExcess",
+          "PaCO2, pH, FiO2, Unit1, Unit2",
+          "Bilirubin_direct, Fibrinogen","TroponinI, AST, Alkalinephos"],
+         SLATE_400,"#F8FAFC"),
+    ]
+    for col, (title, count, items, color, bg) in zip(fe_cols2, groups2):
+        col.markdown(f"""
+<div style="background:{bg};border-radius:10px;padding:0.9rem;border-top:3px solid {color};
+            height:100%;font-size:0.75rem;margin-top:0.6rem;">
+  <div style="font-weight:700;color:{NAVY};margin-bottom:0.2rem;">{title}</div>
+  <div style="font-size:0.7rem;color:{color};font-weight:700;margin-bottom:0.5rem;">{count}</div>
+  {''.join(f'<div style="color:{SLATE_700};margin-bottom:1px;">• {i}</div>' for i in items)}
+</div>""", unsafe_allow_html=True)
 
+# ── Stage 1 Feature Importance ─────────────────────────────────────────────
+with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
 
-# ── STAGE 2 MODEL ─────────────────────────────────────────────────────────────
+    top = s1_feat_imp.head(20).sort_values("Importance")
+    fig, ax = plt.subplots(figsize=(9, 5), facecolor="white")
+    bars = ax.barh(top["Feature"], top["Importance"],
+                   color="#0E7490", alpha=0.82, edgecolor="white", height=0.65)
+    ax.set_xlabel("Feature Importance (XGBoost gain)", fontsize=9)
+    ax.set_title("Stage 1 — Top 20 Feature Importances", fontweight="bold",
+                 fontsize=10, color=NAVY)
+    ax.set_facecolor("#FAFAFA")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(True, axis="x", alpha=0.2)
+    plt.tight_layout()
+    st.pyplot(fig, use_container_width=True)
+    plt.close()
+    st.caption(
+        "ICULOS (ICU length of stay) is the most influential feature — consistent with clinical "
+        "evidence that sepsis risk increases over ICU stay. Lactate, Temp, and Shock_Index "
+        "are the strongest physiological predictors."
+    )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STAGE 2
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
-st.markdown(f"## Stage 2 — Post-Sepsis Risk Assessment")
+st.markdown("## 🧪 Stage 2 — Post-Sepsis Risk Assessment")
 
 st.info(
-    "Stage 2 is a completely separate model from Stage 1. "
-    "It uses a different feature contract, different threshold, and different model artifact.",
+    "Stage 2 is a completely separate model from Stage 1 — different algorithm, "
+    "different feature contract (65 vs 135), different threshold (0.58 vs 0.143), "
+    "and different training objective (risk stratification vs sepsis detection).",
     icon="🔬"
 )
 
-s2c1, s2c2 = st.columns([2, 3])
+s2c1, s2c2, s2c3 = st.columns(3)
 
 with s2c1:
     st.markdown(f"""
-<div style="background:#fff; border-radius:14px; padding:1.4rem 1.6rem;
-            box-shadow:0 2px 12px rgba(0,0,0,0.08); border-top:5px solid {RED};">
-  <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.4rem;">Model</div>
-  <div style="font-size:1.1rem; font-weight:700; color:{NAVY};">LightGBM</div>
-  <div style="font-size:0.72rem; color:{SLATE_400}; margin-top:4px;">Deployed Stage 2 artifact (stage2_model.pkl)</div>
+<div style="background:#fff;border-radius:14px;padding:1.4rem 1.6rem;
+            box-shadow:0 2px 12px rgba(0,0,0,0.08);border-top:5px solid {RED};height:100%;">
+  <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.4rem;">Algorithm</div>
+  <div style="font-size:1.1rem;font-weight:800;color:{NAVY};">LightGBM</div>
+  <div style="font-size:0.72rem;color:{SLATE_400};margin-top:2px;">
+    Post-Sepsis Risk Stratification Model
+  </div>
 
-  <div style="margin-top:1rem; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.3rem;">Purpose</div>
-  <div style="font-size:0.85rem; color:{SLATE_700};">Post-sepsis risk stratification for eligible patients</div>
+  <div style="margin-top:1.1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.3rem;">Decision Threshold</div>
+  <div style="font-size:2rem;font-weight:800;color:{RED};">{s2_thresh:.2f}</div>
+  <div style="font-size:0.72rem;color:{SLATE_400};">
+    Probability ≥ {s2_thresh:.2f} → HIGH RISK<br>
+    Probability &lt; {s2_thresh:.2f} → LOW RISK
+  </div>
 
-  <div style="margin-top:1rem; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.3rem;">Decision Threshold</div>
-  <div style="font-size:1.6rem; font-weight:800; color:{RED};">{s2_thresh:.2f}</div>
-  <div style="font-size:0.72rem; color:{SLATE_400};">Probability ≥ {s2_thresh:.2f} → HIGH RISK</div>
+  <div style="margin-top:1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.3rem;">Features</div>
+  <div style="font-size:1.3rem;font-weight:700;color:{NAVY};">65 engineered features</div>
 
-  <div style="margin-top:1rem; font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.3rem;">Feature Count</div>
-  <div style="font-size:1.3rem; font-weight:700; color:{NAVY};">{len(s2_feats)} features</div>
-
-  <div style="margin-top:1rem; background:#FEF3C7; border-radius:8px; padding:0.7rem; font-size:0.74rem; color:#92400E; line-height:1.6;">
-    <b>Eligibility:</b> Stage 2 is accessible only after a Stage 1 POSITIVE result.
-    The session-state gate enforces this workflow.
+  <div style="margin-top:1rem;background:#FEF3C7;border-radius:8px;padding:0.7rem;
+              font-size:0.74rem;color:#92400E;line-height:1.7;">
+    <b>Access Gate:</b> Stage 2 is accessible only after Stage 1 returns
+    SEPSIS ALERT or BORDERLINE. Session-state enforces this workflow.
   </div>
 </div>
 """, unsafe_allow_html=True)
 
 with s2c2:
     st.markdown(f"""
-<div style="background:#fff; border-radius:14px; padding:1.4rem 1.6rem;
-            box-shadow:0 2px 12px rgba(0,0,0,0.08); border-top:5px solid {RED};">
-  <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; color:{SLATE_400}; margin-bottom:0.8rem;">
-    Evaluation Metrics (Project Test Set)
+<div style="background:#fff;border-radius:14px;padding:1.4rem 1.6rem;
+            box-shadow:0 2px 12px rgba(0,0,0,0.08);border-top:5px solid {RED};">
+  <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.8rem;">
+    Test Set Metrics (Held-Out)
   </div>
 """, unsafe_allow_html=True)
-    s2_metric_pairs = [
-        ("AUROC",     s2_results.get("AUROC", 0)),
-        ("F1 Score",  s2_results.get("F1", 0)),
-        ("Precision", s2_results.get("Precision", 0)),
-        ("Recall",    s2_results.get("Recall", 0)),
-    ]
-    m1, m2 = st.columns(2)
-    for i, (metric, val) in enumerate(s2_metric_pairs):
-        col = m1 if i % 2 == 0 else m2
-        col.metric(metric, f"{val:.4f}")
-
+    for metric, val, note in [
+        ("AUROC",     s2_results.get("AUROC", 0.9631),     "Excellent discrimination"),
+        ("F1 Score",  s2_results.get("F1", 0.7486),        "Balanced precision-recall"),
+        ("Precision", s2_results.get("Precision", 0.7936), "79.4% of alerts are true high risk"),
+        ("Recall",    s2_results.get("Recall", 0.7083),    "70.8% of high-risk hours detected"),
+    ]:
+        bar_pct   = min(int(val * 100), 100)
+        bar_color = GREEN if val >= 0.7 else AMBER if val >= 0.5 else RED
+        st.markdown(f"""
+<div style="margin-bottom:0.7rem;">
+  <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
+    <span style="font-size:0.78rem;color:{SLATE_700};font-weight:500;">{metric}</span>
+    <span style="font-size:0.78rem;color:{NAVY};font-weight:700;">{val:.4f}</span>
+  </div>
+  <div style="background:{SLATE_200};border-radius:999px;height:6px;overflow:hidden;">
+    <div style="background:{bar_color};width:{bar_pct}%;height:100%;border-radius:999px;"></div>
+  </div>
+  <div style="font-size:0.67rem;color:{SLATE_400};margin-top:1px;">{note}</div>
+</div>
+""", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown(f"""
-<div style="margin-top:0.8rem; background:#FFF1F2; border-radius:8px; padding:0.8rem 1rem; font-size:0.76rem; color:#9F1239; line-height:1.7;">
-  <b>Stage 2 Label Disclaimer:</b><br>
-  Stage 2 risk is a project-defined proxy severity/risk classification derived from available
-  clinical indicators. It is <b>not</b> a validated long-term mortality or survivorship prediction.
-  The PhysioNet dataset does not provide a validated long-term survivor outcome label.
+<div style="background:#FFF1F2;border-radius:10px;padding:0.8rem 1rem;
+            margin-top:0.8rem;font-size:0.75rem;color:#9F1239;line-height:1.7;">
+  <b>Stage 2 label note:</b> Risk classification is a project-defined severity proxy
+  derived from available clinical indicators in the PhysioNet dataset.
+  It is not a validated long-term mortality or discharge outcome label.
 </div>
 """, unsafe_allow_html=True)
 
-with st.expander("🔍 Stage 2 — Feature Contract (65 features)", expanded=False):
-    for f in s2_feats:
-        st.markdown(f"<span style='font-size:0.8rem; font-family:monospace; background:#FFF1F2; padding:2px 6px; border-radius:4px; margin:1px; display:inline-block;'>{f}</span>", unsafe_allow_html=True)
+with s2c3:
+    st.markdown(f"""
+<div style="background:#fff;border-radius:14px;padding:1.4rem 1.6rem;
+            box-shadow:0 2px 12px rgba(0,0,0,0.08);border-top:5px solid {RED};">
+  <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.6rem;">
+    Stage 2 vs Stage 1 — Key Differences
+  </div>
+  <table style="font-size:0.75rem;color:{SLATE_700};width:100%;border-collapse:collapse;">
+    <tr style="border-bottom:1px solid #E2E8F0;">
+      <td style="padding:5px 4px;font-weight:600;">Aspect</td>
+      <td style="padding:5px 4px;color:{TEAL};font-weight:600;">Stage 1</td>
+      <td style="padding:5px 4px;color:{RED};font-weight:600;">Stage 2</td>
+    </tr>
+    <tr style="border-bottom:1px solid #F1F5F9;">
+      <td style="padding:5px 4px;">Algorithm</td>
+      <td style="padding:5px 4px;">XGBoost</td>
+      <td style="padding:5px 4px;">LightGBM</td>
+    </tr>
+    <tr style="border-bottom:1px solid #F1F5F9;">
+      <td style="padding:5px 4px;">Features</td>
+      <td style="padding:5px 4px;">135</td>
+      <td style="padding:5px 4px;">65</td>
+    </tr>
+    <tr style="border-bottom:1px solid #F1F5F9;">
+      <td style="padding:5px 4px;">Threshold</td>
+      <td style="padding:5px 4px;">0.143</td>
+      <td style="padding:5px 4px;">0.58</td>
+    </tr>
+    <tr style="border-bottom:1px solid #F1F5F9;">
+      <td style="padding:5px 4px;">AUROC</td>
+      <td style="padding:5px 4px;">0.7587</td>
+      <td style="padding:5px 4px;">0.9631</td>
+    </tr>
+    <tr style="border-bottom:1px solid #F1F5F9;">
+      <td style="padding:5px 4px;">Recall</td>
+      <td style="padding:5px 4px;">70.97%</td>
+      <td style="padding:5px 4px;">70.83%</td>
+    </tr>
+    <tr style="border-bottom:1px solid #F1F5F9;">
+      <td style="padding:5px 4px;">Precision</td>
+      <td style="padding:5px 4px;">11.2%</td>
+      <td style="padding:5px 4px;">79.4%</td>
+    </tr>
+    <tr>
+      <td style="padding:5px 4px;">Access</td>
+      <td style="padding:5px 4px;">Always</td>
+      <td style="padding:5px 4px;">After S1 positive</td>
+    </tr>
+  </table>
 
-# ── PIPELINE ARCHITECTURE ─────────────────────────────────────────────────────
+  <div style="margin-top:1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
+              letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.4rem;">
+    Why is Stage 2 AUROC much higher?
+  </div>
+  <div style="font-size:0.75rem;color:{SLATE_700};line-height:1.7;">
+    Stage 2 operates on the sepsis-positive subpopulation only —
+    a more clinically homogeneous group than the full ICU cohort.
+    The risk stratification task (high vs. low severity) is more separable
+    than the detection task (sepsis vs. no sepsis in mixed population).
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ── Stage 2 Feature Breakdown ─────────────────────────────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+with st.expander("🔧 Stage 2 — Feature Engineering Breakdown (65 features)", expanded=False):
+    s2fe_cols = st.columns(3)
+    s2_groups = [
+        ("Raw Clinical Inputs", "26 features",
+         ["HR, O2Sat, Temp, SBP, DBP, Resp","BaseExcess, HCO3, FiO2, PaCO2",
+          "BUN, Calcium, Glucose, Magnesium","Phosphate, Potassium, Hct, Hgb, PTT, WBC",
+          "Age, Gender, Unit1, Unit2","HospAdmTime, ICULOS"],
+         RED, "#FFF1F2"),
+        ("Clinical Derived", "10 features",
+         ["shock_index = HR÷SBP","temp_deviation = |Temp−37|",
+          "tachycardia (HR>90)","tachypnea (Resp>20)",
+          "hypoxia (O2Sat<95)","fever (Temp>38.3)",
+          "hypothermia (Temp<36)","SIRS_score (0–4)",
+          "pulse_pressure = SBP−DBP","oxygenation_index = O2Sat÷FiO2"],
+         AMBER,"#FEF3C7"),
+        ("Temporal Features", "29 features",
+         ["Rolling 3h mean+std (×6 vars) = 12",
+          "Lag1, Lag3, Delta1 (×5 vars) = 15",
+          "early_icu (ICULOS≤6)","late_icu (ICULOS>24)"],
+         "#7C3AED","#F5F3FF"),
+    ]
+    for col, (title, count, items, color, bg) in zip(s2fe_cols, s2_groups):
+        col.markdown(f"""
+<div style="background:{bg};border-radius:10px;padding:0.9rem;border-top:3px solid {color};
+            font-size:0.75rem;">
+  <div style="font-weight:700;color:{NAVY};margin-bottom:0.2rem;">{title}</div>
+  <div style="font-size:0.7rem;color:{color};font-weight:700;margin-bottom:0.5rem;">{count}</div>
+  {''.join(f'<div style="color:{SLATE_700};margin-bottom:2px;">• {i}</div>' for i in items)}
+</div>""", unsafe_allow_html=True)
+
+    with st.expander("📋 All 65 Stage 2 Feature Names", expanded=False):
+        for f in s2_feats:
+            st.markdown(
+                f"<span style='font-size:0.8rem;font-family:monospace;background:#FFF1F2;"
+                f"padding:2px 6px;border-radius:4px;margin:1px;display:inline-block;'>"
+                f"{f}</span>",
+                unsafe_allow_html=True,
+            )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REFERENCES
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
-st.markdown("## Model Pipeline Architecture")
-
+st.markdown("## 📚 References")
 st.markdown(f"""
-<div style="background:#fff; border-radius:14px; padding:1.6rem 1.8rem;
-            box-shadow:0 2px 12px rgba(0,0,0,0.08); font-size:0.82rem; color:{SLATE_700}; line-height:1.9;">
-  <b style="color:{NAVY};">Stage 1 Pipeline:</b><br>
-  Raw clinical inputs (15) → Feature engineering (79 features derived) →
-  Clinical gating check → LightGBM-Calibrated prediction → Probability → Threshold (0.33) →
-  SEPSIS POSITIVE / NEGATIVE → SHAP explanation<br><br>
+<div style="background:#fff;border-radius:14px;padding:1.4rem 1.8rem;
+            box-shadow:0 2px 8px rgba(0,0,0,0.06);font-size:0.80rem;
+            color:{SLATE_700};line-height:2;">
 
-  <b style="color:{NAVY};">Stage 2 Pipeline:</b><br>
-  Stage 1 POSITIVE eligibility gate → Raw inputs → Feature engineering (65 features) →
-  LightGBM (Stage 2) prediction → Probability → Threshold (0.58) →
-  HIGH RISK / LOW RISK → SHAP explanation<br><br>
+1. Reyna, M. A., et al. (2019). <i>Early Prediction of Sepsis from Clinical Data —
+   PhysioNet/CinC Challenge 2019.</i> Critical Care Medicine.
 
-  <b style="color:{NAVY};">Key principles:</b><br>
-  • Models are loaded once at application startup and cached<br>
-  • Feature contract is verified before every prediction (count + names + order)<br>
-  • Stage 1 and Stage 2 are completely separate model artifacts<br>
-  • Clinical gating is loaded from configuration, not hardcoded<br>
-  • SHAP explanations use the actual model, not simulated values
+2. Singer, M., et al. (2016). <i>Third International Consensus Definitions for
+   Sepsis and Septic Shock (Sepsis-3).</i> JAMA, 315(8), 801–810.
+
+3. Lundberg, S. M., & Lee, S.-I. (2017). <i>A Unified Approach to Interpreting
+   Model Predictions (SHAP).</i> NeurIPS.
+
+4. Chen, T., & Guestrin, C. (2016). <i>XGBoost: A Scalable Tree Boosting System.</i>
+   KDD 2016.
+
+5. Ke, G., et al. (2017). <i>LightGBM: A Highly Efficient Gradient Boosting
+   Decision Tree.</i> NeurIPS.
+
+6. Surviving Sepsis Campaign. (2018). <i>Hour-1 Bundle of Care.</i>
+   Society of Critical Care Medicine.
+
 </div>
 """, unsafe_allow_html=True)
 
-# ── FOOTER ────────────────────────────────────────────────────────────────────
 render_footer()
