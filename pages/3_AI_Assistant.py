@@ -1,533 +1,476 @@
+"""
+pages/3_AI_Assistant.py  —  SepsiArc Medical AI Assistant
+Conversational medical-information assistant powered by AIMLAPI
+(OpenAI-compatible SDK, configured via Streamlit secrets).
+
+Architecture:
+  • get_ai_response()     — sends to AIMLAPI, returns text
+  • SYSTEM_PROMPT         — professional identity + safety rules
+  • SEPSIARC_CONTEXT      — verified project facts (update here only)
+  • Quick Topic buttons   — route through the same AI function
+  • Session state         — persists chat_messages across reruns
+  • Fallback              — graceful error handling, no key leakage
+"""
+
 import streamlit as st
 import os, sys
 
-# Robust path insertion — works regardless of how Streamlit launches the page
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _root not in sys.path:
     sys.path.insert(0, _root)
+
 from utils.ui_components import (
     render_header, render_footer, render_sidebar,
     render_disclaimer_banner,
     NAVY, TEAL, GREEN, AMBER, RED, SLATE_200, SLATE_400, SLATE_700,
 )
 
+# ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="SepsiArc – Clinical Assistant",
+    page_title="SepsiArc – Medical AI Assistant",
     page_icon="💬",
     layout="wide",
 )
 
 render_header(
-    page_title="SepsiArc Clinical Assistant",
-    page_subtitle="Educational and explanatory information about sepsis and this AI system. Does not make predictions.",
+    page_title="SepsiArc Medical AI Assistant",
+    page_subtitle="Conversational educational assistant for sepsis, critical care, and SepsiArc. Powered by AI — for information only.",
     icon="💬",
 )
 render_sidebar("assistant")
 render_disclaimer_banner()
 
-# ── Knowledge Base ────────────────────────────────────────────────────────────
-KB = [
-    {
-        "keys": ["hello", "hi", "hey", "good morning", "good afternoon", "who are you", "what can you do", "help"],
-        "answer": """**Hello! I'm the SepsiArc Clinical Assistant.**
-
-I'm an evidence-based educational Q&A system specialised in sepsis and critical care.
-
-**I can help you understand:**
-- 🔍 What is sepsis, septic shock, SIRS?
-- ⚠️ Clinical scoring systems — qSOFA, SOFA, Lactate
-- 💊 Sepsis-3 definitions and Hour-1 Bundle
-- 🧠 Post-sepsis syndrome and recovery
-- 🤖 How SepsiArc's Stage 1 and Stage 2 models work
-- 📊 What SHAP explanations mean and how to interpret them
-- 📈 What probabilities mean and why false positives/negatives occur
-
-**Important:** I provide **educational information only**. I do not make Stage 1 or Stage 2 predictions — use the dedicated Stage 1 page for clinical assessment. Always consult a qualified healthcare professional for medical decisions.
-
-*Click any Quick FAQ button below or type your question to begin.*"""
-    },
-    {
-        "keys": ["what is sepsis", "define sepsis", "meaning of sepsis", "sepsis mean", "sepsis definition"],
-        "answer": """**What is Sepsis?**
-
-Sepsis is a life-threatening medical emergency caused by the body's extreme response to an infection. When the immune system goes into overdrive fighting an infection, it can damage its own tissues and organs.
-
-**Key facts:**
-- Triggered by bacterial, viral, fungal, or parasitic infections
-- Affects ~49 million people annually worldwide
-- Kills over 11 million people each year (1 in 5 deaths globally)
-- Can progress to septic shock within hours
-- **Time is critical** — every hour of delay increases mortality by ~7%
-
-**Sepsis-3 Definition (2016):**
-Life-threatening organ dysfunction caused by a dysregulated host response to infection (Sequential Organ Failure Assessment score ≥ 2)
-
-**Practical difference from infection:**
-All sepsis involves infection, but not all infection involves sepsis. Sepsis is specifically when the immune response to infection starts damaging the body's own organs."""
-    },
-    {
-        "keys": ["septic shock", "what is septic shock", "shock", "vasopressor"],
-        "answer": """**What is Septic Shock?**
-
-Septic shock is the most severe form of sepsis — characterised by a dramatic drop in blood pressure that does not respond to fluid resuscitation alone.
-
-**Definition (Sepsis-3, 2016):**
-- Sepsis **PLUS**
-- Need for vasopressors to maintain MAP ≥ 65 mmHg
-- Serum Lactate > 2 mmol/L despite adequate fluid resuscitation
-
-**Mortality:** 40–50% (vs 15–25% for sepsis without shock)
-
-**First-line treatment:**
-- Vasopressors: **Norepinephrine** (first-line)
-- Add vasopressin if norepinephrine dose escalation needed
-- Corticosteroids (hydrocortisone) if refractory shock
-- Aggressive lactate-guided fluid resuscitation
-- ICU admission is mandatory
-
-*Note: SepsiArc does not prescribe vasopressor doses or treatment orders. Consult your institutional protocol.*"""
-    },
-    {
-        "keys": ["sirs", "sirs criteria", "systemic inflammatory", "what is sirs"],
-        "answer": """**What is SIRS? (Systemic Inflammatory Response Syndrome)**
-
-SIRS indicates an extreme systemic inflammatory response — it can be triggered by infection, trauma, burns, or pancreatitis.
-
-**SIRS is positive when ≥ 2 of these 4 criteria are met:**
-1. **Temperature** > 38°C (fever) OR < 36°C (hypothermia)
-2. **Heart Rate** > 90 bpm (tachycardia)
-3. **Respiratory Rate** > 20 br/min OR PaCO₂ < 32 mmHg
-4. **WBC** > 12,000/µL OR < 4,000/µL OR >10% bands
-
-**Key interpretation:**
-- SIRS alone ≠ sepsis (can occur in non-infectious conditions)
-- SIRS + suspected/confirmed infection → raises concern for sepsis
-- Newer Sepsis-3 (2016) uses SOFA instead of SIRS, but SIRS remains clinically useful
-- SepsiArc computes SIRS score automatically as part of Stage 1 feature engineering"""
-    },
-    {
-        "keys": ["qsofa", "quick sofa", "what is qsofa"],
-        "answer": """**What is qSOFA? (Quick Sequential Organ Failure Assessment)**
-
-qSOFA is a rapid bedside screening tool for suspected sepsis that requires no laboratory tests.
-
-**Score 1 point for each:**
-1. **Respiratory Rate** ≥ 22 breaths/min
-2. **Altered mental status** (GCS < 15)
-3. **Systolic BP** ≤ 100 mmHg
-
-**Interpretation:**
-- Score **≥ 2/3** → Likely organ dysfunction; investigate urgently for sepsis
-- Score **0–1** → Lower likelihood (but sepsis is not excluded)
-
-**Advantages:** Can be completed in 60 seconds at bedside; no lab tests required.
-
-**SepsiArc:** qSOFA score is automatically computed from HR, Resp, and SBP inputs and used as an engineered feature in Stage 1."""
-    },
-    {
-        "keys": ["sofa", "sofa score", "sequential organ failure", "organ failure score"],
-        "answer": """**SOFA Score — Sequential Organ Failure Assessment**
-
-SOFA quantifies severity of organ dysfunction across 6 systems. It is the basis of the Sepsis-3 definition.
-
-| Organ System | Measure |
-|---|---|
-| Respiratory | PaO₂/FiO₂ ratio |
-| Coagulation | Platelets |
-| Liver | Bilirubin |
-| Cardiovascular | MAP / vasopressor need |
-| CNS | Glasgow Coma Scale (GCS) |
-| Renal | Creatinine / urine output |
-
-**Total range:** 0–24 points
-- Score **≥ 2 increase** from baseline = organ dysfunction (Sepsis-3 criterion)
-- Score ≥ 11 = approximately 50% hospital mortality
-- Increasing SOFA = deterioration; decreasing SOFA = recovery
-
-**SepsiArc** computes a SOFA surrogate from available vital signs and labs. A full SOFA score requires GCS and blood gas values."""
-    },
-    {
-        "keys": ["lactate", "serum lactate", "lactate level", "what is lactate"],
-        "answer": """**Understanding Serum Lactate in Sepsis**
-
-Lactate is produced when cells switch to anaerobic metabolism due to inadequate oxygen delivery — a sign of tissue hypoperfusion.
-
-| Lactate Level | Clinical Interpretation |
-|---|---|
-| < 2 mmol/L | Normal |
-| 2–4 mmol/L | Elevated — suggests sepsis risk; increased mortality |
-| > 4 mmol/L | Severely elevated — septic shock criterion; high mortality |
-
-**Clinical use:**
-- Lactate > 2 mmol/L is part of the Sepsis-3 shock definition
-- Used to guide fluid resuscitation (target lactate clearance ≥ 10%)
-- Repeat every 2 hours; improvement is a positive prognostic sign
-
-**In SepsiArc:** Lactate is one of the 15 raw clinical inputs and is also used to derive `Lactate_risk` and `hyperlactatemia` flags as engineered features for Stage 1."""
-    },
-    {
-        "keys": ["map", "mean arterial pressure", "why is map important", "map in sepsis"],
-        "answer": """**Why is MAP Important in Sepsis?**
-
-Mean Arterial Pressure (MAP) reflects average perfusion pressure to vital organs.
-
-**Formula:** MAP ≈ DBP + (SBP − DBP) / 3
-
-**Clinical significance:**
-- MAP < 65 mmHg = end-organ hypoperfusion threshold
-- Sustained MAP < 65 mmHg despite fluid resuscitation requires vasopressors
-- MAP is a key component of septic shock definition
-
-**SepsiArc uses MAP as:**
-- A direct raw clinical input
-- To derive `MAP_risk` (binary flag: MAP < 65)
-- To derive `MAP_HR_ratio`, `MAP_roll3_mean`, lag features, and trend features"""
-    },
-    {
-        "keys": ["shock index", "what is shock index", "what does shock index mean"],
-        "answer": """**What is the Shock Index?**
-
-Shock Index = Heart Rate ÷ Systolic Blood Pressure
-
-**Interpretation:**
-| Value | Interpretation |
-|---|---|
-| < 0.7 | Normal |
-| 0.7–1.0 | Moderate concern |
-| > 1.0 | Elevated — significant haemodynamic compromise |
-| > 1.4 | Severe compromise — high-risk |
-
-**Clinical use:**
-- Simple bedside calculation requiring no laboratory tests
-- Predicts haemodynamic instability in trauma, sepsis, and haemorrhage
-- Higher values correlate with increased mortality
-
-**SepsiArc:** Shock Index is automatically derived by the backend from HR and SBP inputs. It is not a user-entered field."""
-    },
-    {
-        "keys": ["post-sepsis", "post sepsis syndrome", "long-term", "after sepsis", "recovery effects", "survivors"],
-        "answer": """**Post-Sepsis Syndrome (PSS)**
-
-40–60% of sepsis survivors develop Post-Sepsis Syndrome — a cluster of physical and psychological effects lasting months to years.
-
-**Physical effects:**
-- Extreme fatigue (in ~80% of survivors)
-- Muscle weakness (ICU-acquired weakness)
-- Breathlessness, reduced exercise tolerance
-- Chronic pain or neuropathy
-- Increased susceptibility to infections
-- Chronic organ impairment (kidney, heart, lung)
-
-**Cognitive effects:**
-- Memory problems and difficulty concentrating
-- PTSD — up to 30% of survivors
-- Depression and anxiety
-- Sleep disturbances
-
-**Management framework:**
-- Sepsis survivorship clinics (30/90/180-day follow-ups)
-- Physiotherapy and occupational therapy
-- Psychological support and counselling
-- Regular organ function monitoring
-
-*Note: SepsiArc's Stage 2 assesses post-sepsis risk — not a prediction of who will develop PSS.*"""
-    },
-    {
-        "keys": ["shap", "explain", "explainability", "ai explain", "feature importance", "how does the ai", "interpretable", "what is shap"],
-        "answer": """**What is SHAP and How Should I Interpret It?**
-
-SHAP (SHapley Additive exPlanations) is a method from cooperative game theory used to explain individual AI predictions.
-
-**How SHAP works:**
-- Each input feature receives a SHAP value
-- **Positive SHAP value** → this feature pushes the prediction toward the positive class (e.g., sepsis)
-- **Negative SHAP value** → this feature pushes the prediction away from the positive class
-- The sum of all SHAP values = the model's final log-odds contribution
-
-**Example reading:**
-> "Lactate = 4.2 mmol/L → SHAP +0.12" means: the elevated Lactate pushed the sepsis probability higher.
-
-**Critical interpretation rules:**
-1. SHAP values describe **model behaviour** — not clinical causality
-2. A high SHAP value does NOT mean "this caused sepsis"
-3. It means "given the model learned during training, this feature contributed to this prediction"
-4. SHAP explanations are local — they apply to this specific patient's prediction
-
-**Why SHAP matters in clinical AI:**
-- Provides transparency in AI decisions
-- Helps clinicians identify which values to prioritise in review
-- Supports regulatory requirements for explainable AI in healthcare"""
-    },
-    {
-        "keys": ["how does stage 1 work", "stage 1 model", "how stage 1", "detection stage", "stage 1 explain"],
-        "answer": """**How Stage 1 (Sepsis Detection) Works**
-
-Stage 1 uses a **LightGBM-Calibrated** model trained on the PhysioNet 2019 Sepsis Dataset.
-
-**Raw inputs collected from you (15 fields):**
-Vital signs: HR, O2Sat, Temp, SBP, MAP, DBP, Resp
-Lab values: Creatinine, WBC, Platelets, Glucose, Lactate
-Patient context: Age, Gender, ICULOS
-
-**What the backend derives automatically (64 additional features):**
-- Clinical flags: SIRS score, qSOFA, tachycardia, tachypnea, fever, hypoxia, MAP risk
-- Derived ratios: Shock Index, Pulse Pressure, MAP Ratio, oxygenation index
-- Rolling statistics: 3-point rolling mean, standard deviation for HR, MAP, O2Sat, Temp, Resp, SBP
-- Lag features: 1-step and 3-step lags for key vitals
-- Delta features: Change from previous observation
-- Contextual flags: early_icu, late_icu
-
-**Feature contract:** 79 total features verified before every prediction.
-
-**Decision logic:**
-1. Model outputs a probability (0–1)
-2. Clinical gating rule: if NO SIRS/qSOFA criteria met, raw probability is capped
-3. Final probability vs threshold (0.33) → SEPSIS POSITIVE or NEGATIVE
-
-**Training set:** 1.55M ICU observations · 40,336 patients · PhysioNet 2019"""
-    },
-    {
-        "keys": ["how does stage 2 work", "stage 2 model", "post sepsis model", "risk stratification", "stage 2 explain"],
-        "answer": """**How Stage 2 (Post-Sepsis Risk) Works**
-
-Stage 2 is a completely separate model from Stage 1 — different architecture, different features, different threshold.
-
-**Key differences from Stage 1:**
-- Stage 1: Detects IF sepsis is currently occurring
-- Stage 2: Assesses the severity/risk of post-sepsis recovery
-
-**Stage 2 is only accessible after a Stage 1 POSITIVE result.**
-
-**Stage 2 inputs:** Current vitals (HR, O2Sat, Temp, SBP, DBP, Resp, MAP), laboratory values (BUN, WBC, Glucose, Calcium, Magnesium, Phosphate, Hgb, Hct, PTT), and patient context (Age, Gender, ICULOS, Unit).
-
-**Feature contract:** 65 features, derived similarly to Stage 1 but without Lactate-specific features that were used to construct the Stage 2 label (no data leakage).
-
-**Stage 2 label:** A project-defined proxy risk classification derived from clinical indicators. Not a validated long-term mortality prediction.
-
-**Performance (test set):** AUROC 0.9631 · F1 0.7486 · Recall 0.7083"""
-    },
-    {
-        "keys": ["probability", "what does probability mean", "interpret probability", "what does percent mean"],
-        "answer": """**What Does the Probability Mean?**
-
-The sepsis probability shown by SepsiArc is a **calibrated model output** — it represents the model's estimated likelihood that the patient falls into the positive class.
-
-**How to interpret it:**
-- A probability of 72% means: for patients with similar clinical features, the model classifies approximately 72% as sepsis-positive
-- It is **not** a guarantee or a precise individual prediction
-- The **threshold** (not a fixed 50%) determines the classification: if probability ≥ threshold → POSITIVE
-
-**Important limitations:**
-- The model was trained on population-level ICU data — individual patients may differ
-- Class imbalance (only ~1.8% sepsis rate in training data) means the threshold is calibrated to optimise clinical utility, not statistical balance
-- A 35% probability still warrants careful clinical assessment if the patient shows other signs
-
-**The probability is a decision-support tool, not a diagnostic test result.**"""
-    },
-    {
-        "keys": ["false positive", "false negative", "accuracy", "wrong prediction", "errors", "why wrong"],
-        "answer": """**Why Can False Positives and False Negatives Occur?**
-
-All predictive models, including SepsiArc's, will produce some incorrect predictions.
-
-**False Positive** (predicted positive, actually negative):
-- Patient flagged as sepsis risk but does not have sepsis
-- Risk: unnecessary investigations, patient anxiety
-- In imbalanced datasets, reducing false negatives (missing sepsis) is often prioritised over reducing false positives
-- SepsiArc's clinical gating rule helps reduce false alarms
-
-**False Negative** (predicted negative, actually positive):
-- Patient not flagged, but sepsis is present
-- Risk: delayed treatment
-- This is more dangerous — hence Stage 1 threshold (0.33) is set to favour sensitivity (recall)
-
-**Why errors occur:**
-1. Missing data: many laboratory values have high missingness rates
-2. Class imbalance: only 1.8% of ICU time-points are sepsis-positive
-3. Temporal complexity: sepsis is a dynamic process; a single-point prediction is limited
-4. Dataset limitations: model trained on PhysioNet; real-world performance may differ
-
-**This is why SepsiArc's output must always be interpreted by a clinician — never used as a standalone decision.**"""
-    },
-    {
-        "keys": ["treatment", "treat sepsis", "how is sepsis treated", "antibiotics", "therapy", "hour-1 bundle"],
-        "answer": """**Sepsis Treatment — The Hour-1 Bundle (Surviving Sepsis Campaign)**
-
-When sepsis is identified, these actions must happen within **1 hour**:
-
-1. 🩸 **Blood Cultures × 2** — Before starting antibiotics
-2. 💊 **Broad-spectrum IV Antibiotics** — Immediately; every hour of delay increases mortality
-3. 💧 **IV Fluid Resuscitation** — 30 mL/kg crystalloid if hypoperfusion signs present
-4. 🔬 **Measure Serum Lactate** — If > 4 mmol/L, aggressive resuscitation; repeat at 2h
-5. 💉 **Vasopressors** — Norepinephrine if MAP < 65 mmHg despite adequate fluids
-
-**Ongoing treatment elements:**
-- ICU admission for severe sepsis
-- Source control (drain abscess, remove infected catheter)
-- Mechanical ventilation if respiratory failure
-- Renal replacement therapy if severe AKI
-- Glucose control (target 140–180 mg/dL)
-
-*Note: SepsiArc does not provide medication doses or prescribe treatment. All clinical decisions must follow institutional protocol and physician assessment.*"""
-    },
-    {
-        "keys": ["dataset", "physionet", "training data", "where does data come from", "reyna"],
-        "answer": """**About the Training Dataset**
-
-SepsiArc was trained on the **PhysioNet/Computing in Cardiology Challenge 2019** dataset.
-
-**Dataset details:**
-- **Source:** PhysioNet (Reyna et al., 2019) — publicly available
-- **Patients:** 40,336 ICU patients across multiple hospital systems
-- **Time-points:** ~1.55 million hourly ICU measurements
-- **Sepsis rate:** 1.8% (severe class imbalance)
-- **Features:** 40 clinical variables (vitals + labs + demographics)
-
-**Stage 1 preprocessing:**
-- Clinical gating applied for false alarm reduction
-- 79 engineered features derived from 15 raw clinical inputs
-- LightGBM-Calibrated model with isotonic regression calibration
-
-**Stage 2:**
-- Patient-level features aggregated from time-series
-- 65 features with data-leakage prevention
-
-**Citation:** Reyna MA, Josef C, Seyedi S et al. (2019). "Early prediction of sepsis from clinical data: the PhysioNet/Computing in Cardiology Challenge 2019." Critical Care Medicine."""
-    },
-    {
-        "keys": ["model performance", "accuracy", "auroc", "auprc", "f1", "metrics"],
-        "answer": """**SepsiArc Model Performance (Project Test Set)**
-
-These are evaluation metrics from the project test set — **not live clinical performance**.
-
-**Stage 1 — Sepsis Detection (LightGBM-Calibrated):**
-| Metric | Value |
-|---|---|
-| AUROC | 0.8229 |
-| AUPRC | 0.1039 |
-| F1 Score | 0.1507 |
-| Recall | 0.5038 |
-| Threshold | 0.33 |
-
-**Stage 2 — Post-Sepsis Risk (LightGBM):**
-| Metric | Value |
-|---|---|
-| AUROC | 0.9631 |
-| F1 Score | 0.7486 |
-| Precision | 0.7936 |
-| Recall | 0.7083 |
-| Threshold | 0.58 |
-
-**Why Stage 1 AUROC is ~0.82 (not higher):**
-The PhysioNet dataset has only ~1.8% positive rate. Traditional ML on tabular ICU data typically plateaus around AUROC 0.82–0.85 on this dataset. Higher performance typically requires deep learning on full time-series.
-
-View the **Model Information** page for full details."""
-    },
+# ══════════════════════════════════════════════════════════════════════════════
+# SYSTEM PROMPT — professional identity + medical safety rules
+# ══════════════════════════════════════════════════════════════════════════════
+SYSTEM_PROMPT = """You are the SepsiArc Medical AI Assistant. You provide clear, responsible, \
+educational information about sepsis, general medical concepts, and the SepsiArc \
+machine-learning project.
+
+IDENTITY AND SCOPE:
+- You are an educational assistant, not a licensed doctor or clinical decision-maker.
+- Your primary role is to explain sepsis, critical care concepts, clinical scoring systems, \
+and how the SepsiArc application works.
+- You may answer ordinary general questions when appropriate.
+- Politely redirect requests that require clinical judgment beyond education.
+
+MEDICAL SAFETY RULES (strictly follow these):
+1. Always state that your information is educational and not a substitute for professional \
+medical assessment.
+2. Never claim to confirm or rule out sepsis in a real patient.
+3. Never prescribe medication, recommend specific dosages, or replace physician judgment.
+4. If a user describes potentially life-threatening symptoms or a suspected medical emergency, \
+advise them IMMEDIATELY to call emergency services (e.g. 112, 999, 911). Do not delay this \
+with lengthy explanation.
+5. Do not falsely reassure a user that they are safe because of a low model score.
+6. Do not invent research papers, clinical guidelines, statistics, or medical facts.
+7. Be transparent when information is uncertain or when you are reaching the limits of your \
+knowledge.
+8. Do not claim SepsiArc is clinically validated, approved for clinical use, or suitable for \
+real-world diagnosis. It is a research and educational tool.
+9. Explain that an ML probability or risk category is a model output, not the patient's \
+true probability of disease.
+10. Do not interpret SHAP feature contributions as proof of causation.
+11. Do not fabricate patient data, prediction results, or model outputs.
+
+COMMUNICATION STYLE:
+- Adapt technical depth to the user's apparent background.
+- Use clear language and explain medical jargon when you use it.
+- Structure responses with headings and bullet points for clarity when appropriate.
+- Keep responses concise but complete — do not pad unnecessarily.
+- When relevant, mention that Stage 1 or Stage 2 assessment pages exist in SepsiArc.
+"""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SEPSIARC PROJECT CONTEXT — verified facts from current source code
+# Update this section when the project changes; keep separate from SYSTEM_PROMPT
+# ══════════════════════════════════════════════════════════════════════════════
+SEPSIARC_CONTEXT = """
+VERIFIED SEPSIARC PROJECT FACTS (use these when asked about the project):
+
+OVERVIEW:
+SepsiArc is a dual-stage machine-learning clinical decision-support web application built \
+with Streamlit (Python). It is deployed on Streamlit Community Cloud and is a research/\
+educational tool — not a clinically validated or FDA/CE-approved product. It is trained on the \
+PhysioNet/CinC Challenge 2019 ICU dataset.
+
+STAGE 1 — Sepsis Detection:
+- Algorithm: XGBoost (Regularized Cost-Sensitive Model A)
+- Input method: PSV or CSV file upload (one patient's hourly ICU timeline)
+- Each row = one ICU hour; columns matched by name (column order does not matter)
+- Raw clinical columns used: HR, O2Sat, Temp, SBP, MAP, DBP, Resp, BUN, Calcium, Creatinine, \
+Glucose, Lactate, Hct, Hgb, WBC, Platelets, Age, Gender, HospAdmTime, ICULOS
+- Feature engineering produces 135 total features via 10 steps:
+  (1) Drop sparse columns, (2) Chronological sort by ICULOS, \
+  (3) 18 missingness indicators, (4) 18 time-since-last-measurement features, \
+  (5) Causal forward fill (max 4h vitals, max 3h lactate), \
+  (6) 24 lag/change features (1h and 3h lags for 6 vitals), \
+  (7) 48 rolling window statistics (3h and 6h × mean/min/max/std × 6 vitals), \
+  (8) 5 clinical derived features (Shock_Index, Pulse_Pressure, MAP_Ratio, SIRS_partial, Low_MAP), \
+  (9) Column median imputation, (10) Replace infinities
+- Decision threshold: 0.143 (selected to achieve ≥70% recall — capturing more sepsis cases)
+- Output per hour: sepsis probability 0–1
+- Patient-level result: peak probability across all hours
+  → ≥0.143: SEPSIS ALERT (Stage 2 accessible)
+  → ≥0.08: BORDERLINE (Stage 2 accessible with caution)
+  → <0.08: LOW RISK (Stage 2 locked)
+- Test set performance: AUROC 0.7587, Recall 70.97%, Precision 11.2%, F1 19.35%
+- SHAP explainability: TreeExplainer used on the peak-risk hour; top 10 features shown
+- Model file: Stage1_Final_Model_A.json (XGBoost native JSON format)
+- Training dataset: PhysioNet 2019, 11,932 patients after preprocessing (64/16/20 patient-level split)
+- Sepsis rate in training rows: ~5.5%
+
+STAGE 2 — Post-Sepsis Risk Assessment:
+- Accessible only after Stage 1 ALERT or BORDERLINE result
+- Algorithm: LightGBM
+- Input: same PSV/CSV file as Stage 1 (re-upload)
+- 65 engineered features including shock_index, SIRS_score, oxygenation_index, rolling 3h stats, \
+lag/delta features, early_icu and late_icu timing flags
+- Decision threshold: 0.58
+- Output: HIGH RISK or LOW RISK per hour + overall patient assessment
+- Test set performance: AUROC 0.9631, F1 0.7486, Precision 0.7936, Recall 0.7083
+- Stage 2 label is a project-defined proxy severity classification — not a validated long-term \
+mortality or survivorship prediction
+- SHAP explanation provided for peak-risk hour
+
+EXPLAINABILITY (SHAP):
+- Both stages use SHAP TreeExplainer
+- Positive SHAP value = feature pushes prediction toward sepsis/high-risk
+- Negative SHAP value = feature reduces predicted risk
+- SHAP values describe model behaviour — NOT clinical causality
+- Top 10 features by absolute SHAP value are displayed
+
+LIMITATIONS:
+- Research and educational tool only; not clinically validated
+- No real patient-identifying data should be entered
+- Trained on PhysioNet 2019 (US ICU data); real-world generalisation not established
+- Model performance metrics are from the project test set, not live clinical deployment
+"""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# API CLIENT SETUP
+# ══════════════════════════════════════════════════════════════════════════════
+# Free-model fallback list for OpenRouter (tried in order if primary model fails/empty)
+_OPENROUTER_FREE_FALLBACKS = [
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3.5-lightning:free",
+    "poolside/laguna-xs-2.1:free",
+    "apodex/apodex-1.1-mini:free",
+    "liquid/lfm-2.5-2.6b:free",
 ]
 
 
-def get_response(question: str) -> str:
-    """Match question to knowledge base and return response."""
-    q = question.lower().strip()
-    for item in KB:
-        if any(k in q for k in item["keys"]):
-            return item["answer"]
-    # Broad fallback
-    if any(w in q for w in ["sepsis", "infection", "icu", "hospital", "clinical", "medical", "patient", "bacteria"]):
-        return """I understand you're asking about a clinical or sepsis-related topic.
-
-I have detailed information on many topics — try asking more specifically:
-
-- "What is sepsis?"
-- "What are the symptoms of sepsis?"
-- "How is sepsis treated?"
-- "What is SIRS / qSOFA / SOFA?"
-- "What is lactate?"
-- "What is the shock index?"
-- "What is SHAP?"
-- "How does Stage 1 work?"
-- "What does the probability mean?"
-- "Why do false positives occur?"
-
-Or click one of the **Quick FAQ buttons** above!"""
-
-    return """I'm specialised in sepsis, critical care, and SepsiArc explanations.
-
-I can help with:
-- Sepsis definition, causes, and warning signs
-- Clinical scoring systems (SIRS, qSOFA, SOFA, Lactate, MAP)
-- Treatment protocols and Surviving Sepsis Campaign guidelines
-- Post-sepsis syndrome and recovery
-- How Stage 1 and Stage 2 models work
-- SHAP explanations and AI interpretability
-- Model performance and limitations
-
-Please try rephrasing your question or use the **Quick FAQ buttons** below!"""
+def _load_secrets() -> tuple[str | None, str | None]:
+    """
+    Load API credentials from Streamlit secrets.
+    Supports both AIMLAPI and OpenRouter keys (auto-detected by prefix).
+    Returns (api_key, model_id) — both None if not configured.
+    Never prints or exposes secret values.
+    """
+    try:
+        api_key  = st.secrets.get("AIMLAPI_API_KEY",  None)
+        model_id = st.secrets.get("AIMLAPI_MODEL",    None)
+        # Treat empty strings as unconfigured
+        api_key  = api_key.strip()  if api_key  and api_key.strip()  else None
+        model_id = model_id.strip() if model_id and model_id.strip() else None
+        return api_key, model_id
+    except Exception:
+        return None, None
 
 
-# ── QUICK FAQ BUTTONS ─────────────────────────────────────────────────────────
-st.markdown("##### 💬 Quick Topics — Click to Ask:")
+def _get_base_url(api_key: str) -> str:
+    """Auto-detect provider base URL from the key prefix."""
+    if api_key.startswith("sk-or-"):
+        return "https://openrouter.ai/api/v1"
+    return "https://api.aimlapi.com/v1"
 
-faqs = [
-    ("What is Sepsis?",              "what is sepsis"),
-    ("Septic Shock",                 "what is septic shock"),
-    ("SIRS Criteria",                "what is sirs"),
-    ("qSOFA Score",                  "what is qsofa"),
-    ("Lactate Levels",               "what is lactate in sepsis"),
-    ("Shock Index",                  "what is the shock index"),
-    ("Post-Sepsis Syndrome",         "what is post-sepsis syndrome"),
-    ("SHAP Explanations",            "what is shap"),
-    ("How Stage 1 Works",            "how does stage 1 work"),
-    ("How Stage 2 Works",            "how does stage 2 work"),
-    ("What Probability Means",       "what does the probability mean"),
-    ("False Positives/Negatives",    "why do false positives occur"),
+
+def _is_openrouter(api_key: str) -> bool:
+    return api_key.startswith("sk-or-")
+
+
+@st.cache_resource(show_spinner=False)
+def _get_openai_client(api_key: str):
+    """
+    Instantiate an OpenAI-compatible client.
+    Auto-detects provider (OpenRouter or AIMLAPI) from the key prefix.
+    Cached so the client object is created once per session.
+    """
+    from openai import OpenAI
+    return OpenAI(
+        api_key=api_key,
+        base_url=_get_base_url(api_key),
+        timeout=45.0,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AI RESPONSE FUNCTION
+# ══════════════════════════════════════════════════════════════════════════════
+def get_ai_response(question: str, conversation_history: list[dict]) -> str:
+    """
+    Send a question + recent conversation history to AIMLAPI and return the response.
+
+    Parameters
+    ----------
+    question              : The current user question (already added to history by caller)
+    conversation_history  : Full session message list [{role, content}, ...]
+
+    Returns
+    -------
+    str — assistant reply, or a user-friendly error message
+    """
+    api_key, model_id = _load_secrets()
+
+    # ── Guard: secrets not configured ─────────────────────────────────────
+    if not api_key:
+        return (
+            "⚙️ **Configuration required:** The AI assistant API key is not set up yet.\n\n"
+            "**For the administrator:** Add `AIMLAPI_API_KEY` and `AIMLAPI_MODEL` to "
+            "`.streamlit/secrets.toml` for local development, or to the app's Secrets "
+            "settings on Streamlit Community Cloud."
+        )
+    if not model_id:
+        return (
+            "⚙️ **Configuration required:** No model ID is configured.\n\n"
+            "**For the administrator:** Set `AIMLAPI_MODEL` in `.streamlit/secrets.toml` "
+            "(e.g. `AIMLAPI_MODEL = \"gpt-4o-mini\"`)."
+        )
+
+    # ── Build message payload ─────────────────────────────────────────────
+    # System message carries identity + project context separately from chat
+    system_content = SYSTEM_PROMPT.strip() + "\n\n" + SEPSIARC_CONTEXT.strip()
+
+    # Limit history to the last 12 exchanges (24 messages) to control tokens
+    # Always include the most recent user question (last message)
+    history_window = conversation_history[-24:] if len(conversation_history) > 24 else conversation_history
+
+    messages = [{"role": "system", "content": system_content}] + history_window
+
+    # ── API call — with OpenRouter free-model fallback ──────────────────
+    # Always include the current question explicitly in the messages sent to the model
+    messages_with_q = messages.copy()
+    # Avoid double-appending: only add if not already the last user message
+    if not messages_with_q or messages_with_q[-1].get("content") != question:
+        messages_with_q.append({"role": "user", "content": question})
+
+    def _call_model(model: str) -> tuple[str | None, str | None]:
+        """
+        Try one model.
+        Returns (reply_text, None) on success.
+        Returns (None, None) on retryable / empty response — caller should try next model.
+        Returns (None, error_msg) on fatal error — caller should stop and show error.
+        """
+        try:
+            client = _get_openai_client(api_key)
+            extra = {"extra_headers": {
+                "HTTP-Referer": "https://mutexsepsiarc.streamlit.app",
+                "X-Title": "SepsiArc Medical Assistant"
+            }} if _is_openrouter(api_key) else {}
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages_with_q,
+                max_tokens=800,
+                temperature=0.4,
+                top_p=0.9,
+                **extra,
+            )
+            if (response.choices and
+                    response.choices[0].message and
+                    response.choices[0].message.content and
+                    response.choices[0].message.content.strip()):
+                return response.choices[0].message.content.strip(), None
+            # Empty content — retryable
+            return None, None
+
+        except Exception as e:
+            err = str(e)
+            # Fatal errors — stop immediately
+            if "401" in err or "authentication" in err.lower():
+                return None, (
+                    "🔐 **Authentication error:** The API key was rejected. "
+                    "Please verify `AIMLAPI_API_KEY` is correct and enabled in your "
+                    "provider dashboard (OpenRouter or AIMLAPI)."
+                )
+            if "403" in err and "only available" not in err.lower():
+                return None, (
+                    "🚫 **Access denied:** This model requires a paid plan. "
+                    "Use a model ID ending in `:free` on OpenRouter."
+                )
+            # Retryable: 429, 404, 500, 503, empty — try next model
+            return None, None
+
+    # Try primary model, then fallbacks
+    models_to_try = [model_id] + (
+        [m for m in _OPENROUTER_FREE_FALLBACKS if m != model_id]
+        if _is_openrouter(api_key) else []
+    )
+
+    last_error = None
+    for attempt_model in models_to_try:
+        try:
+            result, fatal_err = _call_model(attempt_model)
+        except Exception as e:
+            last_error = str(e)
+            continue
+
+        if fatal_err:
+            return fatal_err          # Auth or billing — stop immediately
+        if result:
+            return result             # ✅ Got a real answer
+        # else: None — try next model
+
+    # All models failed or returned empty
+    return (
+        "⚠️ The AI assistant is temporarily unavailable. "
+        "All free-tier models are busy or returning empty responses right now. "
+        "Please wait **30 seconds** and try again, or rephrase your question."
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SESSION STATE INITIALISATION
+# ══════════════════════════════════════════════════════════════════════════════
+if "chat_messages" not in st.session_state:
+    st.session_state.chat_messages = []
+    # Greeting from the assistant on first load
+    welcome = (
+        "**Hello! I'm the SepsiArc Medical AI Assistant.** 👋\n\n"
+        "I can help you understand:\n"
+        "- 🦠 What is sepsis, septic shock, SIRS, and related conditions\n"
+        "- 📋 Clinical scoring systems — qSOFA, SOFA, Lactate, Shock Index\n"
+        "- 💊 Treatment principles — the Hour-1 Bundle, vasopressors, antibiotics\n"
+        "- 🧠 Post-Sepsis Syndrome and recovery\n"
+        "- 🤖 How SepsiArc's Stage 1 and Stage 2 models work\n"
+        "- 📊 What SHAP explanations mean and how to interpret them\n"
+        "- 📈 What probabilities mean and the nature of false positives/negatives\n\n"
+        "**⚕ Important:** I provide **educational information only** and am not a substitute "
+        "for clinical judgment. For sepsis assessment of a real patient, use the "
+        "**Stage 1 Detection** page.\n\n"
+        "*Click a Quick Topic below or type your question to get started.*"
+    )
+    st.session_state.chat_messages.append({"role": "assistant", "content": welcome})
+
+# Track the last FAQ question processed to prevent double-processing on reruns
+if "last_faq_processed" not in st.session_state:
+    st.session_state.last_faq_processed = None
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INFO PANEL
+# ══════════════════════════════════════════════════════════════════════════════
+api_key_set, model_id_set = _load_secrets()
+
+if not api_key_set or not model_id_set:
+    st.warning(
+        "⚙️ **AI assistant not yet configured.** "
+        "Set `AIMLAPI_API_KEY` and `AIMLAPI_MODEL` in `.streamlit/secrets.toml` "
+        "(local) or in the Streamlit Cloud app Secrets. "
+        "The assistant will show configuration instructions in the chat until this is done.",
+        icon="⚠️",
+    )
+else:
+    provider = "OpenRouter" if (api_key_set and api_key_set.startswith("sk-or-")) else "AIMLAPI"
+    st.success(
+        f"✅ AI assistant connected — model: `{model_id_set}` via {provider}.",
+        icon="🤖",
+    )
+
+st.markdown("---")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# QUICK TOPIC BUTTONS
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("##### 💬 Quick Topics — click to ask:")
+
+# Preserved topic labels and their prompt text (sent to AI, not hard-coded answers)
+FAQS: list[tuple[str, str]] = [
+    ("What is Sepsis?",           "What is sepsis? Please explain the definition, causes, and why it is dangerous."),
+    ("Septic Shock",              "What is septic shock? How does it differ from sepsis and what is the treatment?"),
+    ("SIRS Criteria",             "What is SIRS? Explain the four SIRS criteria and their clinical significance."),
+    ("qSOFA Score",               "What is qSOFA? Explain the three criteria and how to interpret the score."),
+    ("Lactate Levels",            "Explain serum lactate levels in sepsis — what the values mean and how they guide treatment."),
+    ("Shock Index",               "What is the Shock Index? How is it calculated and what values indicate concern?"),
+    ("Post-Sepsis Syndrome",      "What is Post-Sepsis Syndrome? What are the long-term effects on survivors?"),
+    ("SHAP Explanations",         "What is SHAP in machine learning? How should I interpret the SHAP chart in SepsiArc?"),
+    ("How Stage 1 Works",         "How does Stage 1 of SepsiArc work? Explain the model, features, threshold, and output."),
+    ("How Stage 2 Works",         "How does Stage 2 of SepsiArc work? What model is used and what does the output mean?"),
+    ("What Probability Means",    "What does the sepsis probability percentage in SepsiArc actually mean?"),
+    ("False Positives/Negatives", "Why do false positives and false negatives occur in SepsiArc's predictions?"),
 ]
 
-# Initialise chat
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-    st.session_state.messages.append({"role": "assistant", "content": get_response("hello")})
-
-# FAQ buttons in rows
 faq_row1 = st.columns(6)
 faq_row2 = st.columns(6)
-all_cols = list(faq_row1) + list(faq_row2)
+all_faq_cols = list(faq_row1) + list(faq_row2)
 
-for i, (label, q_text) in enumerate(faqs):
-    if i < len(all_cols):
-        if all_cols[i].button(label, key=f"faq_{i}", use_container_width=True):
-            st.session_state.messages.append({"role": "user", "content": label})
-            st.session_state.messages.append({"role": "assistant", "content": get_response(q_text)})
+for i, (label, prompt_text) in enumerate(FAQS):
+    if i < len(all_faq_cols):
+        if all_faq_cols[i].button(label, key=f"faq_{i}", use_container_width=True):
+            # Prevent processing the same FAQ twice on Streamlit reruns
+            faq_key = f"faq_{i}_{label}"
+            if st.session_state.last_faq_processed != faq_key:
+                st.session_state.last_faq_processed = faq_key
+                st.session_state.chat_messages.append({"role": "user", "content": label})
+                with st.spinner("Thinking…"):
+                    reply = get_ai_response(
+                        label,
+                        st.session_state.chat_messages[:-1],  # history before this user msg
+                    )
+                st.session_state.chat_messages.append({"role": "assistant", "content": reply})
             st.rerun()
 
 st.markdown("---")
 
-# Sidebar clear button
+# ── Sidebar: clear chat ───────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("<hr style='border-color:#1e3a5f;'>", unsafe_allow_html=True)
     if st.button("🗑️ Clear Chat History", use_container_width=True):
-        st.session_state.messages = []
+        st.session_state.chat_messages = []
+        st.session_state.last_faq_processed = None
         st.rerun()
 
-# ── CHAT DISPLAY ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# CHAT DISPLAY
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("#### 💬 Chat")
-for msg in st.session_state.messages:
-    role = msg["role"]
-    with st.chat_message(role):
+for msg in st.session_state.chat_messages:
+    with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# ── CHAT INPUT ────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# CHAT INPUT
+# ══════════════════════════════════════════════════════════════════════════════
 if prompt := st.chat_input("Ask about sepsis, SHAP, SOFA, how SepsiArc works…"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    response = get_response(prompt)
-    st.session_state.messages.append({"role": "assistant", "content": response})
-    st.rerun()
+    if prompt.strip():
+        # Add user message
+        st.session_state.chat_messages.append({"role": "user", "content": prompt.strip()})
+        # Show it immediately
+        with st.chat_message("user"):
+            st.markdown(prompt.strip())
+        # Get AI response with spinner
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking…"):
+                reply = get_ai_response(
+                    prompt.strip(),
+                    st.session_state.chat_messages[:-1],  # history before current user msg
+                )
+            st.markdown(reply)
+        # Persist response
+        st.session_state.chat_messages.append({"role": "assistant", "content": reply})
+        # Reset FAQ dedup key so same FAQ can be asked again after a manual question
+        st.session_state.last_faq_processed = None
 
-# ── FOOTER ────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# FOOTER
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
 st.caption(
-    "⚕ SepsiArc Clinical Assistant provides educational information based on published clinical guidelines. "
-    "It does not make Stage 1 or Stage 2 predictions and must not be used as a substitute for clinical assessment. "
-    "Sources: Surviving Sepsis Campaign (2021), Sepsis-3 Consensus Definitions (2016), PhysioNet (Reyna et al., 2019)."
+    "⚕ SepsiArc Medical AI Assistant provides educational information only. "
+    "Responses are AI-generated and may contain inaccuracies. "
+    "This assistant does not make Stage 1 or Stage 2 predictions and must not be used as a "
+    "substitute for clinical assessment by a qualified healthcare professional. "
+    "Sources: Surviving Sepsis Campaign (2021), Sepsis-3 Consensus Definitions (2016), "
+    "PhysioNet (Reyna et al., 2019). Powered by AIMLAPI."
 )
 render_footer()
