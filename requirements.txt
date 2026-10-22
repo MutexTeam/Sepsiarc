@@ -12,3 +12,4 @@ imbalanced-learn==0.14.2
 scipy==1.16.3
 catboost==1.2.10
 openai>=1.35.0
+lime>=0.2.0

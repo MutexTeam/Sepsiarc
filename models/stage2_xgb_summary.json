@@ -1,0 +1,27 @@
+{
+    "stage": "Stage 2",
+    "target": "Risk_50pct",
+    "model": "Saved reduced XGBoost",
+    "feature_count": 65,
+    "decision_threshold": 0.29,
+    "labelled_test_patients": 575,
+    "retrained_during_export": false,
+    "threshold_changed_during_export": false,
+    "evaluation_note": "These results use previously evaluated test patients. They are not an independent new test evaluation.",
+    "target_limitation": "Risk_50pct is a rule-derived physiological-risk proxy, not a clinically validated outcome.",
+    "metrics": {
+        "Model": "Final Saved Reduced XGBoost",
+        "Features": 65,
+        "Threshold": 0.29,
+        "Test_Patients": 575,
+        "Target_Prevalence": 0.43130434782608695,
+        "Accuracy": 0.7147826086956521,
+        "Precision": 0.6235294117647059,
+        "Recall": 0.8548387096774194,
+        "F1": 0.7210884353741497,
+        "ROC_AUC": 0.8294367169774095,
+        "PR_AUC": 0.8001052878787644,
+        "Brier": 0.16587287121989477,
+        "Log_Loss": 0.502101740134179
+    }
+}
