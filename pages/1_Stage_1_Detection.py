@@ -6,7 +6,7 @@ Threshold: 0.143 | Features: 135 | AUROC: 0.7587 | Recall: 70.97%
 Input: PSV / CSV file upload (hourly patient timeline)
 """
 
-import os, json, warnings
+import os, io, json, warnings
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -495,8 +495,11 @@ ax.set_facecolor("#FAFCFF")
 ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 plt.tight_layout()
-st.pyplot(fig, use_container_width=True)
-plt.close()
+_buf1 = io.BytesIO()
+fig.savefig(_buf1, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+_buf1.seek(0)
+st.image(_buf1, use_container_width=True)
+plt.close(fig)
 
 # True labels overlay (if available)
 if "SepsisLabel" in raw_df.columns:
@@ -514,8 +517,11 @@ if "SepsisLabel" in raw_df.columns:
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
         plt.tight_layout()
-        st.pyplot(fig2, use_container_width=True)
-        plt.close()
+        _buf2 = io.BytesIO()
+        fig2.savefig(_buf2, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+        _buf2.seek(0)
+        st.image(_buf2, use_container_width=True)
+        plt.close(fig2)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HOUR-BY-HOUR TABLE
@@ -550,11 +556,23 @@ st.caption(
 with st.spinner("Computing SHAP explanation…"):
     try:
         import shap
-        explainer   = shap.TreeExplainer(s1_model)
-        peak_row    = model_X.iloc[[peak_hour_idx]]
-        shap_vals   = explainer.shap_values(peak_row)
-        sv          = shap_vals[0] if isinstance(shap_vals, list) else shap_vals[0]
-        shap_series = pd.Series(sv, index=S1_FEATURES)
+        sv = None
+        # Try new shap.Explainer first (avoids xgboost.core error on Cloud)
+        try:
+            _exp = shap.Explainer(s1_model)
+            _sv  = _exp(peak_row)
+            sv   = _sv.values
+            if sv.ndim == 3:
+                sv = sv[:, :, 1]
+            sv = sv[0]
+        except Exception:
+            pass
+        # Fallback: classic TreeExplainer
+        if sv is None:
+            _exp2     = shap.TreeExplainer(s1_model)
+            shap_vals = _exp2.shap_values(peak_row)
+            sv        = shap_vals[0] if isinstance(shap_vals, list) else shap_vals[0]
+        shap_series = pd.Series(np.array(sv, dtype=float), index=S1_FEATURES)
         top10       = shap_series.abs().nlargest(10).index
         tv          = shap_series[top10]
 
@@ -575,8 +593,11 @@ with st.spinner("Computing SHAP explanation…"):
         ax3.spines["top"].set_visible(False)
         ax3.spines["right"].set_visible(False)
         plt.tight_layout()
-        st.pyplot(fig3, use_container_width=True)
-        plt.close()
+        _buf3 = io.BytesIO()
+        fig3.savefig(_buf3, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+        _buf3.seek(0)
+        st.image(_buf3, use_container_width=True)
+        plt.close(fig3)
 
         sc1, sc2 = st.columns(2)
         sc1.markdown(f"<span style='color:{RED};font-size:0.8rem;'>🔴 Red — increases sepsis risk</span>",
