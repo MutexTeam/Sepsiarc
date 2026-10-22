@@ -625,19 +625,30 @@ with st.spinner("Computing LIME explanation..."):
     try:
         import lime.lime_tabular
 
+        # Build a synthetic background from the imputer's stored column means
+        # so LIME has a meaningful feature distribution to perturb around.
+        # Using only X_imputed (1 row) causes all LIME contributions to be ~0.
+        _col_means = s2_imputer.statistics_          # shape (65,)
+        _col_std   = np.abs(_col_means) * 0.15 + 1e-6  # 15% std, never zero
+        _rng       = np.random.default_rng(42)
+        _bg        = _col_means + _rng.normal(0, 1, size=(200, len(S2_FEATURES))) * _col_std
+        # Replace the single patient's row at index 0 so LIME sees the true point
+        _bg[0]     = X_imputed.values[0]
+        _bg        = np.clip(_bg, 0, None)   # physiological values ≥ 0
+
         lime_exp_obj = lime.lime_tabular.LimeTabularExplainer(
-            training_data=X_imputed.values,
+            training_data=_bg,
             feature_names=S2_FEATURES,
             class_names=["Lower Risk", "Higher Risk"],
             mode="classification",
             discretize_continuous=True,
             random_state=42,
         )
-        lime_exp  = lime_exp_obj.explain_instance(
+        lime_exp = lime_exp_obj.explain_instance(
             data_row=X_imputed.values[0],
             predict_fn=s2_model.predict_proba,
             num_features=10,
-            num_samples=500,
+            num_samples=1000,
         )
         lime_list = lime_exp.as_list()
         lime_for     = [(f, v) for f, v in lime_list if v > 0]
