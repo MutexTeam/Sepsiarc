@@ -1,4 +1,4 @@
-﻿"""
+"""
 pages/2_Stage_2_Risk.py  --  SepsiArc Stage 2: Post-Sepsis Risk Stratification
 Model  : XGBoost (stage2_xgb_model.joblib)
 Imputer: SimpleImputer (stage2_xgb_imputer.joblib)
@@ -479,21 +479,22 @@ with pc1:
     st.metric("Decision Threshold",      f"{S2_THRESH*100:.2f}%")
 
 with pc2:
-    fig_p, ax_p = plt.subplots(figsize=(5, 1.5), facecolor="white")
-    ax_p.barh([0], [prob_higher_risk], color=risk_color, alpha=0.85, height=0.5)
-    ax_p.barh([0], [1 - prob_higher_risk], left=[prob_higher_risk],
-              color=SLATE_200, alpha=0.5, height=0.5)
-    ax_p.axvline(S2_THRESH, color=NAVY, lw=2, linestyle="--",
-                 label=f"Threshold ({S2_THRESH:.2f})")
-    ax_p.set_xlim(0, 1); ax_p.set_yticks([])
-    ax_p.set_xlabel("Higher Risk Probability", fontsize=9)
-    ax_p.legend(fontsize=8, loc="upper right")
-    ax_p.set_facecolor("#FAFCFF")
-    for sp in ["top","right","left"]:
-        ax_p.spines[sp].set_visible(False)
-    plt.tight_layout()
-    st.pyplot(fig_p, use_container_width=True)
-    plt.close()
+    # Pure HTML gauge — no matplotlib (avoids Cloud rendering failures)
+    pct     = prob_higher_risk * 100
+    thresh_pct = S2_THRESH * 100
+    bar_w   = min(pct, 100)
+    thresh_w = min(thresh_pct, 100)
+    st.markdown(
+        f'<div style="margin-bottom:0.4rem;font-size:0.78rem;color:{SLATE_700};">'  
+        f'Higher Risk Probability vs Decision Threshold</div>'
+        f'<div style="position:relative;height:28px;background:#E2E8F0;border-radius:6px;overflow:visible;">'
+        f'<div style="width:{bar_w:.1f}%;height:100%;background:{risk_color};border-radius:6px;opacity:0.85;"></div>'
+        f'<div style="position:absolute;top:-4px;bottom:-4px;left:{thresh_w:.1f}%;width:3px;background:{NAVY};border-radius:2px;"></div>'
+        f'<div style="position:absolute;top:30px;left:{thresh_w:.1f}%;font-size:0.72rem;color:{NAVY};white-space:nowrap;transform:translateX(-50%);">'
+        f'Threshold {thresh_pct:.2f}%</div>'
+        f'</div><div style="margin-top:2rem;"></div>',
+        unsafe_allow_html=True,
+    )
 
     if patient_high:
         st.info(
@@ -519,16 +520,46 @@ st.caption(
 with st.spinner("Computing SHAP explanation..."):
     try:
         import shap
-        explainer = shap.TreeExplainer(s2_model)
-        sv = explainer.shap_values(X_imputed)
-        if isinstance(sv, list):
-            sv = sv[1]
-        if hasattr(sv, "values"):
-            sv = sv.values
-        if sv.ndim == 2:
-            sv = sv[0]
 
-        shap_s  = pd.Series(sv, index=S2_FEATURES)
+        # ── Try modern shap.Explainer first (avoids 'xgboost has no attribute core') ──
+        sv = None
+        shap_label = "SHAP"
+        try:
+            explainer = shap.Explainer(s2_model, X_imputed)
+            shap_exp  = explainer(X_imputed)
+            sv = shap_exp.values
+            # shap.Explainer on binary XGBoost may return shape (n, feats) or (n, feats, 2)
+            if sv.ndim == 3:
+                sv = sv[:, :, 1]   # positive class
+            sv = sv[0]             # single patient
+        except Exception:
+            pass
+
+        # ── Fallback 1: classic TreeExplainer ──────────────────────────────────
+        if sv is None:
+            try:
+                explainer2 = shap.TreeExplainer(s2_model)
+                sv2 = explainer2.shap_values(X_imputed)
+                if isinstance(sv2, list):
+                    sv2 = sv2[1]
+                if hasattr(sv2, "values"):
+                    sv2 = sv2.values
+                if sv2.ndim == 2:
+                    sv2 = sv2[0]
+                sv = sv2
+            except Exception:
+                pass
+
+        # ── Fallback 2: model's built-in feature_importances_ ──────────────────
+        if sv is None:
+            sv = s2_model.feature_importances_
+            shap_label = "Feature Importance (SHAP unavailable)"
+            st.caption(
+                "Note: SHAP is unavailable in this environment — showing the "
+                "model's built-in XGBoost feature importances instead."
+            )
+
+        shap_s  = pd.Series(np.array(sv, dtype=float), index=S2_FEATURES)
         top10   = shap_s.abs().nlargest(10).index
         top10_v = shap_s[top10]
         pos_c   = top10_v[top10_v > 0].sort_values(ascending=False)
@@ -540,21 +571,23 @@ with st.spinner("Computing SHAP explanation..."):
             for i, (f, v) in enumerate(pos_c.items(), 1):
                 st.markdown(f"{i}. `{f}` (+{v:.4f})")
             if len(pos_c) == 0:
-                st.caption("None in top 10.")
+                st.caption("None in top 10 (all neutral or negative).")
         with sc2:
             st.markdown("**Top factors toward Lower Risk**")
             for i, (f, v) in enumerate(neg_c.items(), 1):
                 st.markdown(f"{i}. `{f}` ({v:.4f})")
             if len(neg_c) == 0:
-                st.caption("None in top 10.")
+                st.caption("None in top 10 (all neutral or positive).")
 
-        fig_s, ax_s = plt.subplots(figsize=(9, 4.5), facecolor="white")
+        # Bar chart
+        plt.close("all")
+        fig_s, ax_s = plt.subplots(figsize=(9, 4.5), dpi=90, facecolor="white")
         cs = [RED if v > 0 else GREEN for v in top10_v.values[::-1]]
         ax_s.barh(range(len(top10_v)), top10_v.values[::-1],
                   color=cs, alpha=0.85, edgecolor="white", height=0.65)
         ax_s.set_yticks(range(len(top10_v)))
         ax_s.set_yticklabels(top10_v.index[::-1], fontsize=9)
-        ax_s.set_xlabel("SHAP value  (positive -> Higher Risk)", fontsize=9)
+        ax_s.set_xlabel(f"{shap_label} value  (positive -> Higher Risk)", fontsize=9)
         ax_s.set_title(
             f"Top 10 Feature Contributions  -  Stage 2 ({prob_higher_risk*100:.1f}% Higher Risk)",
             fontweight="bold", fontsize=10, color=NAVY,
@@ -566,9 +599,10 @@ with st.spinner("Computing SHAP explanation..."):
         ax_s.spines["right"].set_visible(False)
         plt.tight_layout()
         st.pyplot(fig_s, use_container_width=True)
-        plt.close()
+        plt.close(fig_s)
+
     except Exception as e:
-        st.info(f"SHAP explanation unavailable: {str(e)[:150]}")
+        st.info(f"SHAP explanation unavailable: {str(e)[:200]}")
 
 
 # ===== SECTION 6: LIME =========================================================
