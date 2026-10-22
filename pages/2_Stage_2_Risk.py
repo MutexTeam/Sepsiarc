@@ -598,7 +598,11 @@ with st.spinner("Computing SHAP explanation..."):
         ax_s.spines["top"].set_visible(False)
         ax_s.spines["right"].set_visible(False)
         plt.tight_layout()
-        st.pyplot(fig_s, use_container_width=True)
+        _buf_s = io.BytesIO()
+        fig_s.savefig(_buf_s, format="png", dpi=120, bbox_inches="tight",
+                      facecolor="white")
+        _buf_s.seek(0)
+        st.image(_buf_s, use_container_width=True)
         plt.close(fig_s)
 
     except Exception as e:
@@ -668,8 +672,12 @@ with st.spinner("Computing LIME explanation..."):
         ax_l.spines["top"].set_visible(False)
         ax_l.spines["right"].set_visible(False)
         plt.tight_layout()
-        st.pyplot(fig_l, use_container_width=True)
-        plt.close()
+        _buf_l = io.BytesIO()
+        fig_l.savefig(_buf_l, format="png", dpi=120, bbox_inches="tight",
+                      facecolor="white")
+        _buf_l.seek(0)
+        st.image(_buf_l, use_container_width=True)
+        plt.close(fig_l)
         st.caption("LIME describes local model behaviour — not clinical causation.")
 
     except ImportError:
