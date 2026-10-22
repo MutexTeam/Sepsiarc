@@ -6,7 +6,7 @@ Threshold: 0.143 | Features: 135 | AUROC: 0.7587 | Recall: 70.97%
 Input: PSV / CSV file upload (hourly patient timeline)
 """
 
-import os, io, json, warnings
+import os, io, json, warnings, base64
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -496,9 +496,13 @@ ax.spines["top"].set_visible(False)
 ax.spines["right"].set_visible(False)
 plt.tight_layout()
 _buf1 = io.BytesIO()
-fig.savefig(_buf1, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+fig.savefig(_buf1, format="png", dpi=110, bbox_inches="tight", facecolor="white")
 _buf1.seek(0)
-st.image(_buf1, use_container_width=True)
+_b64_1 = base64.b64encode(_buf1.read()).decode()
+st.markdown(
+    f'<img src="data:image/png;base64,{_b64_1}" style="width:100%;display:block;"/>',
+    unsafe_allow_html=True,
+)
 plt.close(fig)
 
 # True labels overlay (if available)
@@ -518,9 +522,13 @@ if "SepsisLabel" in raw_df.columns:
         ax2.spines["right"].set_visible(False)
         plt.tight_layout()
         _buf2 = io.BytesIO()
-        fig2.savefig(_buf2, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+        fig2.savefig(_buf2, format="png", dpi=110, bbox_inches="tight", facecolor="white")
         _buf2.seek(0)
-        st.image(_buf2, use_container_width=True)
+        _b64_2 = base64.b64encode(_buf2.read()).decode()
+        st.markdown(
+            f'<img src="data:image/png;base64,{_b64_2}" style="width:100%;display:block;"/>',
+            unsafe_allow_html=True,
+        )
         plt.close(fig2)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -556,6 +564,7 @@ st.caption(
 with st.spinner("Computing SHAP explanation…"):
     try:
         import shap
+        peak_row = model_X.iloc[[peak_hour_idx]]   # row for the highest-risk hour
         sv = None
         # Try new shap.Explainer first (avoids xgboost.core error on Cloud)
         try:
@@ -594,9 +603,13 @@ with st.spinner("Computing SHAP explanation…"):
         ax3.spines["right"].set_visible(False)
         plt.tight_layout()
         _buf3 = io.BytesIO()
-        fig3.savefig(_buf3, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+        fig3.savefig(_buf3, format="png", dpi=110, bbox_inches="tight", facecolor="white")
         _buf3.seek(0)
-        st.image(_buf3, use_container_width=True)
+        _b64_3 = base64.b64encode(_buf3.read()).decode()
+        st.markdown(
+            f'<img src="data:image/png;base64,{_b64_3}" style="width:100%;display:block;"/>',
+            unsafe_allow_html=True,
+        )
         plt.close(fig3)
 
         sc1, sc2 = st.columns(2)

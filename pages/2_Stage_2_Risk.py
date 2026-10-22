@@ -10,7 +10,7 @@ Access : Gated - requires Stage 1 ALERT or BORDERLINE in session_state.
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib, json, os, sys, io, warnings
+import joblib, json, os, sys, io, warnings, base64
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -602,7 +602,11 @@ with st.spinner("Computing SHAP explanation..."):
         fig_s.savefig(_buf_s, format="png", dpi=120, bbox_inches="tight",
                       facecolor="white")
         _buf_s.seek(0)
-        st.image(_buf_s, use_container_width=True)
+        _b64_s = base64.b64encode(_buf_s.read()).decode()
+        st.markdown(
+            f'<img src="data:image/png;base64,{_b64_s}" style="width:100%;display:block;"/>',
+            unsafe_allow_html=True,
+        )
         plt.close(fig_s)
 
     except Exception as e:
@@ -676,7 +680,11 @@ with st.spinner("Computing LIME explanation..."):
         fig_l.savefig(_buf_l, format="png", dpi=120, bbox_inches="tight",
                       facecolor="white")
         _buf_l.seek(0)
-        st.image(_buf_l, use_container_width=True)
+        _b64_l = base64.b64encode(_buf_l.read()).decode()
+        st.markdown(
+            f'<img src="data:image/png;base64,{_b64_l}" style="width:100%;display:block;"/>',
+            unsafe_allow_html=True,
+        )
         plt.close(fig_l)
         st.caption("LIME describes local model behaviour — not clinical causation.")
 
