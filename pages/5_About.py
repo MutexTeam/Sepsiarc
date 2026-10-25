@@ -57,15 +57,14 @@ with m1:
     st.markdown(
         '<div style="background:#fff;border-radius:12px;padding:1.3rem 1.5rem;'
         'box-shadow:0 2px 8px rgba(0,0,0,0.06);border-top:4px solid ' + TEAL + ';margin-bottom:0.8rem;">'
-        '<div style="font-size:0.9rem;font-weight:700;color:' + NAVY + ';margin-bottom:0.6rem;">🧬 Stage 1 — Sepsis Detection</div>'
+        '<div style="font-size:0.9rem;font-weight:700;color:' + NAVY + ';margin-bottom:0.6rem;">\U0001f9ec Stage 1 \u2014 Sepsis Detection</div>'
         '<ul style="font-size:0.81rem;color:' + SLATE_700 + ';padding-left:1rem;margin:0;line-height:1.9;">'
-        '<li><b>Model:</b> LightGBM-Calibrated (isotonic regression)</li>'
-        '<li><b>Features:</b> 79 engineered clinical features</li>'
-        '<li><b>Raw inputs:</b> 15 clinical parameters (vitals + labs + demographics)</li>'
-        '<li><b>Positive threshold:</b> &ge; 0.33 (33%) &rarr; Stage 2 accessible</li>'
-        '<li><b>Borderline threshold:</b> 0.15&ndash;0.33 &rarr; Stage 2 accessible with caution</li>'
-        '<li><b>Clinical gate:</b> capped at 0.10 if no SIRS/qSOFA criteria met</li>'
-        '<li><b>AUROC:</b> 0.8229 on PhysioNet test set</li>'
+        '<li><b>Model:</b> Regularized Cost-Sensitive XGBoost (Model A)</li>'
+        '<li><b>Features:</b> 135 engineered clinical features</li>'
+        '<li><b>Raw inputs:</b> 22 clinical parameters (vitals + labs + demographics)</li>'
+        '<li><b>Alert threshold:</b> &ge; 0.143 (14.3%) &rarr; SEPSIS ALERT</li>'
+        '<li><b>Borderline:</b> 0.08&ndash;0.143 &rarr; monitoring recommended</li>'
+        '<li><b>AUROC:</b> 0.7587 &nbsp;&middot;&nbsp; <b>Recall:</b> 70.97% on PhysioNet test set</li>'
         '</ul>'
         '</div>',
         unsafe_allow_html=True
@@ -75,30 +74,31 @@ with m2:
     st.markdown(
         '<div style="background:#fff;border-radius:12px;padding:1.3rem 1.5rem;'
         'box-shadow:0 2px 8px rgba(0,0,0,0.06);border-top:4px solid ' + RED + ';margin-bottom:0.8rem;">'
-        '<div style="font-size:0.9rem;font-weight:700;color:' + NAVY + ';margin-bottom:0.6rem;">🔬 Stage 2 — Post-Sepsis Risk</div>'
+        '<div style="font-size:0.9rem;font-weight:700;color:' + NAVY + ';margin-bottom:0.6rem;">\U0001f52c Stage 2 \u2014 Post-Sepsis Risk Stratification</div>'
         '<ul style="font-size:0.81rem;color:' + SLATE_700 + ';padding-left:1rem;margin:0;line-height:1.9;">'
-        '<li><b>Model:</b> LightGBM (scale_pos_weight for class imbalance)</li>'
-        '<li><b>Features:</b> 65 patient-level clinical features</li>'
-        '<li><b>Eligibility:</b> Stage 1 positive (&ge;33%) or borderline (15&ndash;33%)</li>'
-        '<li><b>Risk threshold:</b> &ge; 0.58 = HIGH RISK</li>'
-        '<li><b>No data leakage:</b> label-generating features excluded</li>'
-        '<li><b>AUROC:</b> 0.9631 on PhysioNet test set</li>'
+        '<li><b>Model:</b> XGBoost (patient-level, max_depth=2)</li>'
+        '<li><b>Features:</b> 65 patient-level aggregate features</li>'
+        '<li><b>Feature type:</b> Pre-label &amp; early post-label window aggregates per vital</li>'
+        '<li><b>Eligibility:</b> Stage 1 positive or borderline</li>'
+        '<li><b>Risk threshold:</b> &ge; 0.29 = HIGHER RISK &nbsp;&middot;&nbsp; &lt; 0.29 = LOWER RISK</li>'
+        '<li><b>ROC-AUC:</b> 0.8294 &nbsp;&middot;&nbsp; <b>Recall:</b> 85.48% on patient test set</li>'
         '</ul>'
         '</div>',
         unsafe_allow_html=True
     )
 
-# SHAP section
+# SHAP + LIME section
 st.markdown(
     '<div style="background:#fff;border-radius:12px;padding:1.3rem 1.5rem;'
     'box-shadow:0 2px 8px rgba(0,0,0,0.06);border-top:4px solid #7C3AED;margin-bottom:1rem;">'
-    '<div style="font-size:0.9rem;font-weight:700;color:' + NAVY + ';margin-bottom:0.6rem;">📊 Explainable AI — SHAP</div>'
+    '<div style="font-size:0.9rem;font-weight:700;color:' + NAVY + ';margin-bottom:0.6rem;">\U0001f4ca Explainable AI \u2014 SHAP &amp; LIME</div>'
     '<div style="font-size:0.81rem;color:' + SLATE_700 + ';line-height:1.8;">'
-    'Both Stage 1 and Stage 2 use <b>SHAP (SHapley Additive exPlanations)</b> to provide '
+    'Both Stage 1 and Stage 2 use <b>SHAP (SHapley Additive exPlanations)</b> and '
+    '<b>LIME (Local Interpretable Model-Agnostic Explanations)</b> to provide '
     'feature-level explanations for every prediction. SHAP values indicate which clinical inputs '
-    'contributed most to the model\'s decision — in which direction and by how much.<br><br>'
-    '<b>Important:</b> SHAP values describe <i>model behaviour</i>, not clinical causality. '
-    'A high SHAP value means a feature strongly influenced the model\'s prediction — '
+    'contributed most to the model\'s decision \u2014 in which direction and by how much.<br><br>'
+    '<b>Important:</b> SHAP and LIME values describe <i>model behaviour</i>, not clinical causality. '
+    'A high SHAP value means a feature strongly influenced the model\'s prediction \u2014 '
     'not that it is the clinical cause of sepsis.'
     '</div>'
     '</div>',

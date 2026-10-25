@@ -79,7 +79,7 @@ if not s1_eligible:
     st.markdown(f"""
 <div style="background:#FEF3C7;border:2px solid {AMBER};border-radius:14px;
             padding:2rem 2.5rem;text-align:center;margin:1rem 0;">
-  <div style="font-size:2.5rem;margin-bottom:0.8rem;">🔒</div>
+  <div style="font-size:2.5rem;margin-bottom:0.8rem;">🔍’</div>
   <div style="font-size:1.1rem;font-weight:700;color:{NAVY};margin-bottom:0.5rem;">
     Stage 2 - Access Restricted
   </div>
@@ -102,7 +102,7 @@ prob_line = (f'<div style="font-size:0.78rem;color:{SLATE_700};">'
 st.markdown(f"""
 <div style="background:#fff;border:2px solid {card_border};border-radius:12px;
             padding:0.9rem 1.6rem;margin-bottom:1.2rem;display:flex;align-items:center;gap:1.5rem;">
-  <div style="font-size:2rem;">{"⚠️" if s1_positive else "⚡"}</div>
+  <div style="font-size:2rem;">{"⚠️" if s1_positive else "⚡"}</div>
   <div>
     <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:{SLATE_400};">Stage 1 Result</div>
     <div style="font-size:1rem;font-weight:800;color:{card_border};">{result_label_s1}</div>
@@ -113,7 +113,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # Model info expander
-with st.expander("ℹ️ Stage 2 Model Information", expanded=False):
+with st.expander("ℹ️ Stage 2 Model Information", expanded=False):
     mi1, mi2, mi3, mi4, mi5 = st.columns(5)
     mi1.metric("Algorithm",  "XGBoost")
     mi2.metric("Threshold",  f"{S2_THRESH:.2f}" if model_ok else "-")
@@ -122,10 +122,10 @@ with st.expander("ℹ️ Stage 2 Model Information", expanded=False):
     mi4.metric("Recall",     f"{m.get('Recall',0)*100:.1f}%" if model_ok else "-")
     mi5.metric("Features",   "65")
     st.caption(
-        f"XGBoost post-sepsis risk model · 65 patient-level aggregate features · "
-        f"Target: Risk_50pct · "
-        f"AUROC: {m.get('ROC_AUC',0):.4f} · F1: {m.get('F1',0):.4f} · "
-        f"Precision: {m.get('Precision',0):.4f} · Recall: {m.get('Recall',0):.4f} · "
+        f"XGBoost post-sepsis risk model Â· 65 patient-level aggregate features Â· "
+        f"Target: Risk_50pct Â· "
+        f"AUROC: {m.get('ROC_AUC',0):.4f} Â· F1: {m.get('F1',0):.4f} Â· "
+        f"Precision: {m.get('Precision',0):.4f} Â· Recall: {m.get('Recall',0):.4f} Â· "
         f"Threshold: {S2_THRESH:.2f}"
     )
 
@@ -157,7 +157,7 @@ uploaded = st.file_uploader(
 )
 
 if uploaded is None:
-    st.info("⬆️ Upload the patient's hourly data file above to begin Stage 2 risk assessment.")
+    st.info("⬆️ Upload the patient's hourly data file above to begin Stage 2 risk assessment.")
     with st.expander("📋 Expected columns (any subset, any order)", expanded=False):
         st.code("HR|O2Sat|Temp|SBP|MAP|DBP|Resp|Age|HospAdmTime|ICULOS", language=None)
     render_footer()
@@ -368,7 +368,7 @@ with res_col:
 
     if patient_high:
         st.error(
-            "**⚠️ Higher Risk — Post-Sepsis Severity Indicated**\n\n"
+            "**⚠️ Higher Risk — Post-Sepsis Severity Indicated**\n\n"
             "The Stage 2 model classifies this patient as Higher Risk based on physiological "
             "patterns after the Stage 1 reference hour.\n\n"
             "**This is a model-based risk stratification, not a clinical diagnosis.**  \n"
@@ -385,24 +385,36 @@ with res_col:
 
 with info_col:
     st.markdown("#### 📋 Patient / Prediction Information")
+    _s2_pid  = uploaded.name.replace(".psv","").replace(".csv","")
+    _s2_age  = raw_df["Age"].dropna().iloc[0] if "Age" in raw_df.columns and raw_df["Age"].notna().any() else "N/A"
+    _s2_gend = raw_df["Gender"].dropna().iloc[0] if "Gender" in raw_df.columns and raw_df["Gender"].notna().any() else "N/A"
+    _s2_gend_lbl = ("Male" if float(_s2_gend)==1 else "Female") if _s2_gend != "N/A" else "N/A"
     info_df = pd.DataFrame({
         "Information": [
-            "Reference Hour (Stage 1 Peak)",
+            "Patient / File ID",
+            "Age",
+            "Gender",
+            "Stage 1 Reference Hour",
             "Pre-label History Available",
             "Early Post-label Observations",
             "Total Uploaded Observations",
-            "Stage 2 Prediction Status",
-            "Model",
-            "Threshold",
+            "Stage 2 Higher Risk Probability",
+            "Decision Threshold",
+            "Final Risk Classification",
+            "Stage 2 Input Status",
         ],
         "Value": [
+            _s2_pid,
+            f"{float(_s2_age):.0f} yrs" if _s2_age != "N/A" else "N/A",
+            _s2_gend_lbl,
             f"Hour {ref_hour}",
             f"{n_pre} hour(s)",
             f"{n_early} hour(s)",
             f"{n_total_rows} rows",
-            "Prediction Completed" if data_sufficient else "Insufficient Data",
-            "XGBoost (Risk_50pct)",
+            f"{prob_higher_risk*100:.2f}%",
             f"{S2_THRESH:.2f}  ({S2_THRESH*100:.2f}%)",
+            risk_label,
+            "Sufficient" if data_sufficient else "Insufficient",
         ],
     })
     st.dataframe(info_df, use_container_width=True, hide_index=True)
@@ -414,7 +426,7 @@ with info_col:
         )
     else:
         st.warning(
-            "⚠️ **Input Availability: Insufficient** — "
+            "⚠️ **Input Availability: Insufficient** — "
             "Stage 2 prediction cannot be reliably generated because the required "
             "pre-label history or early post-label observations are unavailable."
         )
@@ -498,7 +510,7 @@ with pc2:
 
     if patient_high:
         st.info(
-            f"Since **{prob_higher_risk*100:.2f}% ≥ {S2_THRESH*100:.2f}%**, "
+            f"Since **{prob_higher_risk*100:.2f}% >= {S2_THRESH*100:.2f}%**, "
             f"the Stage 2 model classifies this patient as **Higher Risk**."
         )
     else:
@@ -510,7 +522,7 @@ with pc2:
 
 # ===== SECTION 5: SHAP =========================================================
 st.markdown("---")
-st.markdown("### 🔍 Model Explanation — SHAP (Feature Contributions)")
+st.markdown("### 🔍 Model Explanation — SHAP (Feature Contributions)")
 st.caption(
     "SHAP values show which features contributed most to this prediction. "
     "Positive SHAP pushes toward Higher Risk; Negative SHAP toward Lower Risk. "
@@ -521,7 +533,7 @@ with st.spinner("Computing SHAP explanation..."):
     try:
         import shap
 
-        # ── Try modern shap.Explainer first (avoids 'xgboost has no attribute core') ──
+        # -- Try modern shap.Explainer first (avoids 'xgboost has no attribute core') --
         sv = None
         shap_label = "SHAP"
         try:
@@ -535,7 +547,7 @@ with st.spinner("Computing SHAP explanation..."):
         except Exception:
             pass
 
-        # ── Fallback 1: classic TreeExplainer ──────────────────────────────────
+        # -- Fallback 1: classic TreeExplainer ----------------------------------
         if sv is None:
             try:
                 explainer2 = shap.TreeExplainer(s2_model)
@@ -550,7 +562,7 @@ with st.spinner("Computing SHAP explanation..."):
             except Exception:
                 pass
 
-        # ── Fallback 2: model's built-in feature_importances_ ──────────────────
+        # -- Fallback 2: model's built-in feature_importances_ ------------------
         if sv is None:
             sv = s2_model.feature_importances_
             shap_label = "Feature Importance (SHAP unavailable)"
@@ -634,7 +646,7 @@ with st.spinner("Computing LIME explanation..."):
         _bg        = _col_means + _rng.normal(0, 1, size=(200, len(S2_FEATURES))) * _col_std
         # Replace the single patient's row at index 0 so LIME sees the true point
         _bg[0]     = X_imputed.values[0]
-        _bg        = np.clip(_bg, 0, None)   # physiological values ≥ 0
+        _bg        = np.clip(_bg, 0, None)   # physiological values >= 0
 
         lime_exp_obj = lime.lime_tabular.LimeTabularExplainer(
             training_data=_bg,
@@ -710,7 +722,7 @@ with st.spinner("Computing LIME explanation..."):
 
 # ===== SECTION 7: DATA AVAILABILITY ===========================================
 st.markdown("---")
-st.markdown("### 📁 Input / Data Availability Status")
+st.markdown("### 📁 Input / Data Availability Status")
 avail_data = [
     ("Total rows uploaded",           str(n_total_rows)),
     ("Reference hour (Stage 1 peak)", f"Hour {ref_hour}"),
@@ -767,6 +779,98 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ===== SECTION 10: DOWNLOADABLE REPORTS (PDF) ==================================
 st.markdown("---")
-st.page_link("pages/1_Stage_1_Detection.py", label="<- Back to Stage 1 Detection", icon="🔬")
+st.markdown("### 📥 Download Reports")
+
+import datetime as _dt2
+
+try:
+    from utils.pdf_report import build_stage2_pdf as _build_s2_pdf, build_combined_pdf as _build_comb_pdf
+
+    _fname2   = _s2_pid
+    _ts2      = _dt2.datetime.now().strftime('%Y%m%d_%H%M')
+    _age_str2 = (f"{float(_s2_age):.0f} yrs" if _s2_age != "N/A" else "N/A")
+
+    # Stage 2 PDF
+    _s2_pdf_bytes = _build_s2_pdf(
+        patient_id       = _fname2,
+        age              = _age_str2,
+        gender           = _s2_gend_lbl,
+        n_total_rows     = n_total_rows,
+        s1_result_label  = result_label_s1,
+        s1_prob          = s1_prob,
+        ref_hour         = ref_hour,
+        n_pre            = n_pre,
+        n_early          = n_early,
+        prob_higher_risk = prob_higher_risk,
+        s2_thresh        = S2_THRESH,
+        risk_label       = risk_label,
+        data_sufficient  = data_sufficient,
+        trend_data       = trend_data,
+    )
+
+    # Combined PDF — uses Stage 1 session_state data + Stage 2 results
+    _s1_res_lbl = result_label_s1
+    _s1_prob_v  = s1_prob if s1_prob else 0.0
+    _s1_thresh_v = 0.143
+    _s1_n_alerts = st.session_state.get("s1_n_alerts", 0)
+    _s1_peak_hr  = st.session_state.get("s1_peak_hour", ref_hour)
+    _s1_first_al = st.session_state.get("s1_first_alert_h", None)
+    _s1_n_rows   = st.session_state.get("s1_n_hours", n_total_rows)
+    _s1_obs_s    = 1
+    _s1_obs_e    = _s1_n_rows
+
+    # Stage 1 trend rows (not available in Stage 2 session — pass empty)
+    _s1_trend_r  = []
+
+    _comb_pdf_bytes = _build_comb_pdf(
+        patient_id       = _fname2,
+        age              = _age_str2,
+        gender           = _s2_gend_lbl,
+        n_rows           = _s1_n_rows,
+        obs_start        = _s1_obs_s,
+        obs_end          = _s1_obs_e,
+        s1_result_label  = _s1_res_lbl,
+        s1_prob          = _s1_prob_v,
+        s1_thresh        = _s1_thresh_v,
+        n_alerts         = _s1_n_alerts,
+        peak_hour        = _s1_peak_hr,
+        first_alert_h    = _s1_first_al,
+        s1_trend_rows    = _s1_trend_r,
+        ref_hour         = ref_hour,
+        n_pre            = n_pre,
+        n_early          = n_early,
+        prob_higher_risk = prob_higher_risk,
+        s2_thresh        = S2_THRESH,
+        risk_label       = risk_label,
+        s2_trend_data    = trend_data,
+    )
+
+    rc1, rc2 = st.columns(2)
+    with rc1:
+        st.download_button(
+            label="⬇️ Download Stage 2 Report (PDF)",
+            data=_s2_pdf_bytes,
+            file_name=f"SepsiArc_Stage2_Report_{_fname2}_{_ts2}.pdf",
+            mime="application/pdf",
+        )
+    with rc2:
+        st.download_button(
+            label="⬇️ Download Complete SepsiArc Report (PDF)",
+            data=_comb_pdf_bytes,
+            file_name=f"SepsiArc_Complete_Report_{_fname2}_{_ts2}.pdf",
+            mime="application/pdf",
+        )
+    st.caption(
+        "Stage 2 PDF: Risk result, patient info, physiological trends, interpretation and disclaimer.  |  "
+        "Complete PDF: Full dual-stage analysis (Stage 1 + Transition + Stage 2) in one report."
+    )
+
+except Exception as _pdf2_err:
+    st.warning(f"PDF generation unavailable: {str(_pdf2_err)[:120]}. "
+               "Ensure `fpdf2` is listed in requirements.txt.")
+
+st.markdown("---")
+st.page_link("pages/1_Stage_1_Detection.py", label="<- Back to Stage 1 Detection")
 render_footer()

@@ -465,7 +465,7 @@ This result should be interpreted alongside clinical judgment and full patient c
     st.caption("Structured prompts — SepsiArc does not prescribe treatment.")
     prompts = [
         "Review current vital signs against hourly trend in the timeline below.",
-        "Assess SIRS criteria: fever/hypothermia, tachycardia, tachypnoea, leukocytosis.",
+        "Assess SIRS criteria: fever/hypothermia, tachycardia, tachypnoe, leukocytosis.",
         "Review lactate, creatinine, WBC trajectory for organ dysfunction.",
         "Evaluate Shock Index (HR÷SBP) and MAP ≥65 mmHg.",
         "Consider qSOFA: altered mentation, respiratory rate ≥22, SBP ≤100.",
@@ -473,6 +473,88 @@ This result should be interpreted alongside clinical judgment and full patient c
     ]
     for p in prompts:
         st.markdown(f"- {p}")
+
+# ── Patient Summary Table ─────────────────────────────────────────────────
+st.markdown("---")
+st.markdown("### 📊 Patient Summary")
+
+_pid  = uploaded.name.replace(".psv","").replace(".csv","")
+_age  = raw_df["Age"].dropna().iloc[0] if "Age" in raw_df.columns and raw_df["Age"].notna().any() else "N/A"
+_gend = raw_df["Gender"].dropna().iloc[0] if "Gender" in raw_df.columns and raw_df["Gender"].notna().any() else "N/A"
+_gend_lbl = ("Male" if float(_gend)==1 else "Female") if _gend != "N/A" else "N/A"
+_hosp = raw_df["HospAdmTime"].dropna().iloc[0] if "HospAdmTime" in raw_df.columns and raw_df["HospAdmTime"].notna().any() else "N/A"
+_obs_start = int(hours[0])  if len(hours) else 0
+_obs_end   = int(hours[-1]) if len(hours) else 0
+
+sum_data = {
+    "Patient / File ID":       _pid,
+    "Age":                     f"{float(_age):.0f} yrs" if _age != "N/A" else "N/A",
+    "Gender":                  _gend_lbl,
+    "Total Observations":      f"{n_rows} hours",
+    "Observation Period":      f"Hour {_obs_start} – Hour {_obs_end}",
+    "Peak Sepsis Probability": f"{peak_prob*100:.2f}%",
+    "Decision Threshold":      f"{S1_THRESH:.3f} ({S1_THRESH*100:.1f}%)",
+    "Alert Hours":             f"{n_alerts} / {n_rows}",
+    "Peak Probability Hour":   f"Hour {peak_hour}",
+    "First Alert Hour":        f"Hour {first_alert_h}" if first_alert_h else "None",
+    "Final Prediction":        res_label,
+}
+sm1, sm2 = st.columns(2)
+for i, (k, v) in enumerate(sum_data.items()):
+    col = sm1 if i % 2 == 0 else sm2
+    col.markdown(
+        f'<div style="background:#F8FAFC;border-radius:8px;padding:0.55rem 0.85rem;'
+        f'margin-bottom:0.35rem;border-left:3px solid {TEAL};">'
+        f'<span style="font-size:0.7rem;color:{SLATE_400};text-transform:uppercase;letter-spacing:1px;">{k}</span>'
+        f'<div style="font-size:0.9rem;font-weight:700;color:{NAVY};">{v}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+# ── Physiological Trend Summary ───────────────────────────────────────────
+st.markdown("---")
+st.markdown("### 📈 Physiological Trend Summary")
+st.caption("Values computed from available observations in the uploaded data. Trend: direction over the last 6 observations.")
+
+_vitals_display = [
+    ("HR",          "Heart Rate (bpm)"),
+    ("O2Sat",       "O2 Saturation (%)"),
+    ("Temp",        "Temperature (°C)"),
+    ("SBP",         "Systolic BP (mmHg)"),
+    ("MAP",         "Mean Arterial Pressure"),
+    ("Resp",        "Respiratory Rate (br/min)"),
+    ("Lactate",     "Lactate (mmol/L)"),
+    ("Creatinine",  "Creatinine (mg/dL)"),
+    ("WBC",         "WBC (K/uL)"),
+]
+
+def _trend_arrow(series):
+    s = series.dropna()
+    if len(s) < 2:
+        return "↔️ Stable"
+    delta = s.iloc[-1] - s.iloc[-min(6, len(s))]
+    if delta > s.std() * 0.3:
+        return "↗️ Increasing"
+    elif delta < -s.std() * 0.3:
+        return "↘️ Decreasing"
+    return "↔️ Stable"
+
+_trend_rows = []
+for vname, vlabel in _vitals_display:
+    if vname in raw_df.columns and raw_df[vname].notna().any():
+        col_s = raw_df[vname].dropna()
+        _trend_rows.append({
+            "Parameter": vlabel,
+            "Current / Recent Value": f"{col_s.iloc[-1]:.2f}",
+            "Mean over Stay": f"{col_s.mean():.2f}",
+            "Min": f"{col_s.min():.2f}",
+            "Max": f"{col_s.max():.2f}",
+            "Trend": _trend_arrow(col_s),
+        })
+
+if _trend_rows:
+    st.dataframe(pd.DataFrame(_trend_rows), use_container_width=True, hide_index=True)
+else:
+    st.info("No standard vital sign columns found in the uploaded file for trend summary.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PER-HOUR TIMELINE CHART
@@ -621,23 +703,134 @@ with st.spinner("Computing SHAP explanation…"):
         st.info(f"SHAP explanation unavailable: {str(e)[:120]}")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STAGE 2 NAVIGATION
+# LIME EXPLANATION  —  Stage 1 Patient-Specific
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
+st.markdown("### 🔬 Patient-Specific Explanation — LIME")
+st.caption(
+    "LIME approximates model behaviour around this specific patient's observation at the highest-risk hour. "
+    "Results are approximate — they do not prove clinical causation."
+)
 
-if patient_high:
+with st.spinner("Computing LIME explanation for Stage 1..."):
+    try:
+        import lime.lime_tabular
+        _lime_row   = model_X.iloc[[peak_hour_idx]]
+        _col_means1 = model_X.mean().values
+        _col_std1   = np.abs(_col_means1) * 0.15 + 1e-6
+        _rng1       = np.random.default_rng(42)
+        _bg1        = _col_means1 + _rng1.normal(0, 1, size=(200, len(S1_FEATURES))) * _col_std1
+        _bg1[0]     = _lime_row.values[0]
+        _bg1        = np.clip(_bg1, 0, None)
+
+        _lime_exp_obj1 = lime.lime_tabular.LimeTabularExplainer(
+            training_data=_bg1,
+            feature_names=S1_FEATURES,
+            class_names=["Low Risk", "Sepsis Alert"],
+            mode="classification",
+            discretize_continuous=True,
+            random_state=42,
+        )
+        # Use booster wrapper that exposes predict_proba for LIME
+        def _s1_predict_proba(X):
+            import xgboost as _xgb
+            _d = _xgb.DMatrix(X, feature_names=S1_FEATURES)
+            _p = s1_model.predict(_d)
+            return np.column_stack([1 - _p, _p])
+
+        _lime_exp1  = _lime_exp_obj1.explain_instance(
+            data_row=_lime_row.values[0],
+            predict_fn=_s1_predict_proba,
+            num_features=10,
+            num_samples=1000,
+        )
+        _lime_list1    = _lime_exp1.as_list()
+        _lime_for1     = [(f, v) for f, v in _lime_list1 if v > 0]
+        _lime_against1 = [(f, v) for f, v in _lime_list1 if v <= 0]
+        _pred_cls1     = "Sepsis Alert" if patient_high else "Low Risk"
+
+        lc1s, lc2s = st.columns(2)
+        with lc1s:
+            st.markdown(f"**Features supporting {_pred_cls1}**")
+            for i, (f, v) in enumerate(sorted(_lime_for1, key=lambda x: -abs(x[1]))[:5], 1):
+                st.markdown(f"{i}. {f}")
+            if not _lime_for1:
+                st.caption("None in top 10.")
+        with lc2s:
+            st.markdown(f"**Features opposing {_pred_cls1}**")
+            for i, (f, v) in enumerate(sorted(_lime_against1, key=lambda x: abs(x[1]))[:5], 1):
+                st.markdown(f"{i}. {f}")
+            if not _lime_against1:
+                st.caption("None in top 10.")
+
+        _fn1 = [x[0] for x in _lime_list1]
+        _fv1 = [x[1] for x in _lime_list1]
+        _lc1 = [RED if v > 0 else GREEN for v in _fv1]
+        _fig_l1, _ax_l1 = plt.subplots(figsize=(9, 4.5), facecolor="white")
+        _yp1 = list(range(len(_fn1)))
+        _ax_l1.barh(list(reversed(_yp1)), list(reversed(_fv1)),
+                    color=list(reversed(_lc1)), alpha=0.85, height=0.65)
+        _ax_l1.set_yticks(list(reversed(_yp1)))
+        _ax_l1.set_yticklabels(list(reversed(_fn1)), fontsize=8)
+        _ax_l1.set_xlabel("LIME contribution (positive → Sepsis Alert)", fontsize=9)
+        _ax_l1.set_title(f"LIME Explanation — Hour {peak_hour} ({_pred_cls1})",
+                         fontweight="bold", fontsize=10, color=NAVY)
+        _ax_l1.axvline(0, color="#334155", lw=0.8)
+        _ax_l1.grid(True, axis="x", alpha=0.25)
+        _ax_l1.set_facecolor("#FAFAFA")
+        _ax_l1.spines["top"].set_visible(False)
+        _ax_l1.spines["right"].set_visible(False)
+        plt.tight_layout()
+        _buf_l1 = io.BytesIO()
+        _fig_l1.savefig(_buf_l1, format="png", dpi=120, bbox_inches="tight", facecolor="white")
+        _buf_l1.seek(0)
+        _b64_l1 = base64.b64encode(_buf_l1.read()).decode()
+        st.markdown(
+            f'<img src="data:image/png;base64,{_b64_l1}" style="width:100%;display:block;"/>',
+            unsafe_allow_html=True,
+        )
+        plt.close(_fig_l1)
+        st.caption("LIME describes local model behaviour — not clinical causation.")
+    except ImportError:
+        st.info("⚠️ LIME not installed. Add `lime` to requirements.txt to enable this section.")
+    except Exception as _le:
+        st.info(f"LIME explanation unavailable: {str(_le)[:150]}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STAGE 2 ELIGIBILITY + NAVIGATION
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("### 🔄 Stage 2 Eligibility")
+
+_s2_eligible = patient_high or st.session_state["s1_borderline"]
+_s2_pre_hrs  = int(first_alert_h) - int(hours[0]) if first_alert_h else 0
+_s2_post_hrs = int(hours[-1]) - int(first_alert_h) if first_alert_h else 0
+
+if _s2_eligible:
     st.markdown(f"""
-<div style="background:#FFF1F2;border:1.5px solid #FECDD3;border-radius:12px;
-            padding:1rem 1.4rem;margin-bottom:0.8rem;">
-  <div style="font-size:0.9rem;font-weight:700;color:#9F1239;">
-    ⚠️ Sepsis Alert — Stage 2 Post-Sepsis Risk Assessment Available
-  </div>
-  <div style="font-size:0.78rem;color:#BE123C;margin-top:4px;">
-    Peak probability ({peak_prob*100:.1f}%) exceeds threshold ({S1_THRESH:.3f}).
-    Proceed to Stage 2 for post-sepsis risk stratification.
+<div style="background:#F0FDF4;border:1.5px solid #86EFAC;border-radius:12px;padding:1rem 1.4rem;margin-bottom:0.8rem;">
+  <div style="font-size:0.9rem;font-weight:700;color:#166534;">✅ Stage 2 Post-Sepsis Risk Assessment — Available</div>
+  <div style="font-size:0.78rem;color:#15803D;margin-top:6px;line-height:1.8;">
+    Stage 1 Reference / First Alert Hour: <b>Hour {first_alert_h}</b><br>
+    Pre-alert history available: <b>{_s2_pre_hrs} hour(s)</b><br>
+    Post-alert observations available: <b>{_s2_post_hrs} hour(s)</b><br>
+    Total observations passed to Stage 2: <b>{n_rows}</b>
   </div>
 </div>
 """, unsafe_allow_html=True)
+else:
+    st.markdown(f"""
+<div style="background:#FFF7ED;border:1.5px solid #FED7AA;border-radius:12px;padding:1rem 1.4rem;margin-bottom:0.8rem;">
+  <div style="font-size:0.9rem;font-weight:700;color:#9A3412;">ℹ️ Stage 2 Not Required</div>
+  <div style="font-size:0.78rem;color:#C2410C;margin-top:4px;">
+    Peak probability ({peak_prob*100:.1f}%) is below both thresholds.<br>
+    Stage 2 risk stratification is not applicable without a positive or borderline Stage 1 result.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Stage 2 navigation buttons
+if patient_high:
     st.markdown(
         '<style>.s2-link a{display:block;background:linear-gradient(135deg,#991B1B,#0D2137);'
         'color:#fff!important;text-align:center;padding:0.7rem 1.5rem;border-radius:9px;'
@@ -653,18 +846,6 @@ if patient_high:
     st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state["s1_borderline"]:
-    st.markdown(f"""
-<div style="background:#FFFBEB;border:1.5px solid #FDE68A;border-radius:12px;
-            padding:1rem 1.4rem;margin-bottom:0.8rem;">
-  <div style="font-size:0.9rem;font-weight:700;color:#92400E;">
-    ⚡ Borderline Risk — Stage 2 Available with Caution
-  </div>
-  <div style="font-size:0.78rem;color:#B45309;margin-top:4px;">
-    Peak probability ({peak_prob*100:.1f}%) is below alert threshold but above 8%.
-    Stage 2 is available for further clinical evaluation. Apply additional clinical judgement.
-  </div>
-</div>
-""", unsafe_allow_html=True)
     st.markdown(
         '<style>.s2-link-b a{display:block;background:linear-gradient(135deg,#B45309,#0D2137);'
         'color:#fff!important;text-align:center;padding:0.7rem 1.5rem;border-radius:9px;'
@@ -679,16 +860,51 @@ elif st.session_state["s1_borderline"]:
                  icon="⚡")
     st.markdown('</div>', unsafe_allow_html=True)
 
-else:
-    st.markdown(f"""
-<div style="background:#F0FDF4;border:1.5px solid #BBF7D0;border-radius:12px;
-            padding:1rem 1.4rem;">
-  <div style="font-size:0.9rem;font-weight:700;color:#166534;">✅ Low Risk — Stage 2 Not Required</div>
-  <div style="font-size:0.78rem;color:#15803D;margin-top:4px;">
-    Peak probability ({peak_prob*100:.1f}%) is below both the alert and borderline thresholds.
-    Continue standard clinical monitoring.
-  </div>
-</div>
-""", unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════════════════════════════
+# DOWNLOAD STAGE 1 REPORT (PDF)
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("### 📥 Download Stage 1 Report")
+
+import datetime as _dt
+try:
+    from utils.pdf_report import build_stage1_pdf as _build_s1_pdf
+    _hosp_str = (f"{float(_hosp):.1f} hr before ICU admission"
+                 if _hosp != "N/A" else "N/A")
+    _age_str  = (f"{float(_age):.0f} yrs" if _age != "N/A" else "N/A")
+
+    _pdf_bytes = _build_s1_pdf(
+        patient_id   = _pid,
+        age          = _age_str,
+        gender       = _gend_lbl,
+        n_rows       = n_rows,
+        obs_start    = _obs_start,
+        obs_end      = _obs_end,
+        hosp_adm     = _hosp_str,
+        peak_prob    = peak_prob,
+        s1_thresh    = S1_THRESH,
+        n_alerts     = n_alerts,
+        peak_hour    = peak_hour,
+        first_alert_h= first_alert_h,
+        res_label    = res_label,
+        trend_rows   = _trend_rows,
+        s2_eligible  = _s2_eligible,
+        s2_pre_hrs   = _s2_pre_hrs,
+        s2_post_hrs  = _s2_post_hrs,
+    )
+    _ts = _dt.datetime.now().strftime('%Y%m%d_%H%M')
+    st.download_button(
+        label="⬇️ Download Stage 1 Report (PDF)",
+        data=_pdf_bytes,
+        file_name=f"SepsiArc_Stage1_Report_{_pid}_{_ts}.pdf",
+        mime="application/pdf",
+    )
+    st.caption("PDF report includes patient summary, prediction result, physiological trends, "
+               "Stage 2 eligibility, clinical interpretation, and disclaimer.")
+except Exception as _pdf_err:
+    st.warning(f"PDF generation unavailable: {str(_pdf_err)[:100]}. "
+               "Ensure `fpdf2` is listed in requirements.txt.")
 
 render_footer()
+
+

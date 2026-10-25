@@ -14,3 +14,4 @@ catboost==1.2.10
 openai>=1.35.0
 scikit-image>=0.21.0
 lime>=0.2.0
+fpdf2>=2.7.0

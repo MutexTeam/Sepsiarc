@@ -2,11 +2,11 @@
 pages/4_Model_Information.py  --  SepsiArc Research & Model Information
 Updated to reflect:
   Stage 1: Regularized Cost-Sensitive XGBoost Model A (135 features, threshold 0.143)
-  Stage 2: LightGBM post-sepsis risk model (65 features, threshold 0.58)
+  Stage 2: XGBoost post-sepsis risk model (65 patient-level aggregate features, threshold 0.29)
 Input: PSV/CSV file upload for both stages
 """
 import streamlit as st
-import json, joblib, os, sys
+import json, joblib, os, sys, io, base64
 import pandas as pd
 
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,20 +46,22 @@ st.info(
 @st.cache_data
 def load_all_metadata():
     mdir = os.path.join(_root, "models")
-    # Stage 1 — new XGBoost model
+    # Stage 1 — XGBoost model
     with open(os.path.join(mdir, "Stage1_Final_Model_A_Metadata.json")) as f:
         s1_meta = json.load(f)
     s1_feat_imp = pd.read_csv(os.path.join(mdir, "Stage1_FeatureImportance.csv"))
-    # Stage 2 — LightGBM
-    with open(os.path.join(mdir, "stage2_results.json")) as f:
-        s2_results = json.load(f)
-    s2_thresh = float(joblib.load(os.path.join(mdir, "stage2_threshold.pkl")))
-    with open(os.path.join(mdir, "stage2_feature_names.json")) as f:
-        s2_feats = json.load(f)
-    return s1_meta, s1_feat_imp, s2_results, s2_thresh, s2_feats
+    # Stage 2 — new XGBoost model
+    with open(os.path.join(mdir, "stage2_xgb_metadata.json")) as f:
+        s2_meta = json.load(f)
+    with open(os.path.join(mdir, "stage2_xgb_summary.json")) as f:
+        s2_summary = json.load(f)
+    s2_results = s2_summary.get("metrics", {})
+    s2_thresh   = float(s2_meta.get("decision_threshold", 0.29))
+    s2_feats    = s2_meta.get("features", [])
+    return s1_meta, s1_feat_imp, s2_results, s2_thresh, s2_feats, s2_meta
 
 try:
-    s1_meta, s1_feat_imp, s2_results, s2_thresh, s2_feats = load_all_metadata()
+    s1_meta, s1_feat_imp, s2_results, s2_thresh, s2_feats, s2_meta = load_all_metadata()
     meta_ok = True
 except Exception as e:
     st.error(f"Could not load model metadata: {str(e)[:160]}")
@@ -95,13 +97,15 @@ st.markdown(f"""
   SEPSIS ALERT / BORDERLINE / LOW RISK + SHAP explanation
   <br><br>
 
-  <b style="color:{RED};font-size:0.95rem;">Stage 2 — Post-Sepsis Risk Assessment</b><br>
-  (Accessible only after Stage 1 ALERT or BORDERLINE) →
-  Same file → MAP derivation → forward fill → 10 clinical derived features →
-  12 rolling 3h statistics → 15 lag/delta features → 2 ICU timing features →
-  <b>65 total features</b> → LightGBM model →
-  probability per hour → peak probability vs threshold (0.58) →
-  HIGH RISK / LOW RISK + SHAP explanation
+  <b style="color:{RED};font-size:0.95rem;">Stage 2 — Post-Sepsis Risk Stratification</b><br>
+  (Accessible only after Stage 1 detects sepsis) →
+  Same file → identify reference hour (first positive prediction) →
+  compute patient-level aggregate features over pre-label and early post-label windows:
+  mean, slope, SD, range, observed count, first-to-last change per vital →
+  3 patient scalars (Age, HospAdmTime, ICULOS_at_label) →
+  <b>65 total features</b> → XGBoost model (max_depth=2) →
+  patient-level probability vs threshold (0.29) →
+  HIGHER RISK / LOWER RISK + SHAP + LIME explanation
   <br><br>
 
   <b style="color:{NAVY};">Key Design Principles</b><br>
@@ -310,8 +314,8 @@ with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
 
     top = s1_feat_imp.head(20).sort_values("Importance")
     fig, ax = plt.subplots(figsize=(9, 5), facecolor="white")
-    bars = ax.barh(top["Feature"], top["Importance"],
-                   color="#0E7490", alpha=0.82, edgecolor="white", height=0.65)
+    ax.barh(top["Feature"], top["Importance"],
+            color="#0E7490", alpha=0.82, edgecolor="white", height=0.65)
     ax.set_xlabel("Feature Importance (XGBoost gain)", fontsize=9)
     ax.set_title("Stage 1 — Top 20 Feature Importances", fontweight="bold",
                  fontsize=10, color=NAVY)
@@ -320,8 +324,15 @@ with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
     ax.spines["right"].set_visible(False)
     ax.grid(True, axis="x", alpha=0.2)
     plt.tight_layout()
-    st.pyplot(fig, use_container_width=True)
-    plt.close()
+    _buf_fi = io.BytesIO()
+    fig.savefig(_buf_fi, format="png", dpi=110, bbox_inches="tight", facecolor="white")
+    _buf_fi.seek(0)
+    _b64_fi = base64.b64encode(_buf_fi.read()).decode()
+    st.markdown(
+        f'<img src="data:image/png;base64,{_b64_fi}" style="width:100%;display:block;"/>',
+        unsafe_allow_html=True,
+    )
+    plt.close(fig)
     st.caption(
         "ICULOS (ICU length of stay) is the most influential feature — consistent with clinical "
         "evidence that sepsis risk increases over ICU stay. Lactate, Temp, and Shock_Index "
@@ -335,9 +346,9 @@ st.markdown("---")
 st.markdown("## 🧪 Stage 2 — Post-Sepsis Risk Assessment")
 
 st.info(
-    "Stage 2 is a completely separate model from Stage 1 — different algorithm, "
-    "different feature contract (65 vs 135), different threshold (0.58 vs 0.143), "
-    "and different training objective (risk stratification vs sepsis detection).",
+    "Stage 2 is a completely separate model from Stage 1 — different algorithm (XGBoost, "
+    "patient-level), different feature contract (65 vs 135), different threshold (0.29 vs 0.143), "
+    "and different training objective (risk stratification vs sepsis detection at hour level).",
     icon="🔬"
 )
 
@@ -349,17 +360,17 @@ with s2c1:
             box-shadow:0 2px 12px rgba(0,0,0,0.08);border-top:5px solid {RED};height:100%;">
   <div style="font-size:0.66rem;font-weight:700;text-transform:uppercase;
               letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.4rem;">Algorithm</div>
-  <div style="font-size:1.1rem;font-weight:800;color:{NAVY};">LightGBM</div>
+  <div style="font-size:1.1rem;font-weight:800;color:{NAVY};">XGBoost</div>
   <div style="font-size:0.72rem;color:{SLATE_400};margin-top:2px;">
-    Post-Sepsis Risk Stratification Model
+    Patient-Level Risk Stratification Model
   </div>
 
   <div style="margin-top:1.1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
               letter-spacing:1.5px;color:{SLATE_400};margin-bottom:0.3rem;">Decision Threshold</div>
   <div style="font-size:2rem;font-weight:800;color:{RED};">{s2_thresh:.2f}</div>
   <div style="font-size:0.72rem;color:{SLATE_400};">
-    Probability ≥ {s2_thresh:.2f} → HIGH RISK<br>
-    Probability &lt; {s2_thresh:.2f} → LOW RISK
+    Probability ≥ {s2_thresh:.2f} → HIGHER RISK<br>
+    Probability &lt; {s2_thresh:.2f} → LOWER RISK
   </div>
 
   <div style="margin-top:1rem;font-size:0.66rem;font-weight:700;text-transform:uppercase;
@@ -384,10 +395,12 @@ with s2c2:
   </div>
 """, unsafe_allow_html=True)
     for metric, val, note in [
-        ("AUROC",     s2_results.get("AUROC", 0.9631),     "Excellent discrimination"),
-        ("F1 Score",  s2_results.get("F1", 0.7486),        "Balanced precision-recall"),
-        ("Precision", s2_results.get("Precision", 0.7936), "79.4% of alerts are true high risk"),
-        ("Recall",    s2_results.get("Recall", 0.7083),    "70.8% of high-risk hours detected"),
+        ("ROC-AUC",   s2_results.get("ROC_AUC",   0.8294), "Strong patient-level discrimination"),
+        ("PR-AUC",    s2_results.get("PR_AUC",    0.8001), "High-risk class precision-recall"),
+        ("Recall",    s2_results.get("Recall",    0.8548), "85.5% of higher-risk patients detected"),
+        ("Precision", s2_results.get("Precision", 0.6235), "62.4% of flagged patients are true higher risk"),
+        ("F1 Score",  s2_results.get("F1",        0.7211), "Balanced precision-recall at threshold 0.29"),
+        ("Accuracy",  s2_results.get("Accuracy",  0.7148), "Overall patient-level accuracy"),
     ]:
         bar_pct   = min(int(val * 100), 100)
         bar_color = GREEN if val >= 0.7 else AMBER if val >= 0.5 else RED
@@ -429,8 +442,8 @@ with s2c3:
     </tr>
     <tr style="border-bottom:1px solid #F1F5F9;">
       <td style="padding:5px 4px;">Algorithm</td>
-      <td style="padding:5px 4px;">XGBoost</td>
-      <td style="padding:5px 4px;">LightGBM</td>
+      <td style="padding:5px 4px;">XGBoost (hourly)</td>
+      <td style="padding:5px 4px;">XGBoost (patient)</td>
     </tr>
     <tr style="border-bottom:1px solid #F1F5F9;">
       <td style="padding:5px 4px;">Features</td>
@@ -440,22 +453,27 @@ with s2c3:
     <tr style="border-bottom:1px solid #F1F5F9;">
       <td style="padding:5px 4px;">Threshold</td>
       <td style="padding:5px 4px;">0.143</td>
-      <td style="padding:5px 4px;">0.58</td>
+      <td style="padding:5px 4px;">0.29</td>
     </tr>
     <tr style="border-bottom:1px solid #F1F5F9;">
-      <td style="padding:5px 4px;">AUROC</td>
+      <td style="padding:5px 4px;">ROC-AUC</td>
       <td style="padding:5px 4px;">0.7587</td>
-      <td style="padding:5px 4px;">0.9631</td>
+      <td style="padding:5px 4px;">0.8294</td>
     </tr>
     <tr style="border-bottom:1px solid #F1F5F9;">
       <td style="padding:5px 4px;">Recall</td>
       <td style="padding:5px 4px;">70.97%</td>
-      <td style="padding:5px 4px;">70.83%</td>
+      <td style="padding:5px 4px;">85.48%</td>
     </tr>
     <tr style="border-bottom:1px solid #F1F5F9;">
       <td style="padding:5px 4px;">Precision</td>
       <td style="padding:5px 4px;">11.2%</td>
-      <td style="padding:5px 4px;">79.4%</td>
+      <td style="padding:5px 4px;">62.35%</td>
+    </tr>
+    <tr style="border-bottom:1px solid #F1F5F9;">
+      <td style="padding:5px 4px;">Training scope</td>
+      <td style="padding:5px 4px;">Row-level (hourly)</td>
+      <td style="padding:5px 4px;">Patient-level</td>
     </tr>
     <tr>
       <td style="padding:5px 4px;">Access</td>
@@ -482,23 +500,29 @@ st.markdown("<br>", unsafe_allow_html=True)
 with st.expander("🔧 Stage 2 — Feature Engineering Breakdown (65 features)", expanded=False):
     s2fe_cols = st.columns(3)
     s2_groups = [
-        ("Raw Clinical Inputs", "26 features",
-         ["HR, O2Sat, Temp, SBP, DBP, Resp","BaseExcess, HCO3, FiO2, PaCO2",
-          "BUN, Calcium, Glucose, Magnesium","Phosphate, Potassium, Hct, Hgb, PTT, WBC",
-          "Age, Gender, Unit1, Unit2","HospAdmTime, ICULOS"],
+        ("Patient Scalars", "3 features",
+         ["Age",
+          "HospAdmTime (hours before ICU)",
+          "ICULOS_at_First_Sepsis_Label (reference hour)"],
          RED, "#FFF1F2"),
-        ("Clinical Derived", "10 features",
-         ["shock_index = HR÷SBP","temp_deviation = |Temp−37|",
-          "tachycardia (HR>90)","tachypnea (Resp>20)",
-          "hypoxia (O2Sat<95)","fever (Temp>38.3)",
-          "hypothermia (Temp<36)","SIRS_score (0–4)",
-          "pulse_pressure = SBP−DBP","oxygenation_index = O2Sat÷FiO2"],
-         AMBER,"#FEF3C7"),
-        ("Temporal Features", "29 features",
-         ["Rolling 3h mean+std (×6 vars) = 12",
-          "Lag1, Lag3, Delta1 (×5 vars) = 15",
-          "early_icu (ICULOS≤6)","late_icu (ICULOS>24)"],
-         "#7C3AED","#F5F3FF"),
+        ("Pre-Label Window Aggregates", "~31 features",
+         ["Window: all hours before the Stage 1 reference hour",
+          "Per vital (HR, SBP, MAP, Resp, O2Sat, Temp):",
+          "  • Mean / Slope (linear trend)",
+          "  • Observed Count / Mean / Min / Max",
+          "  • Observed SD / Range",
+          "  • FirstToLast_Change",
+          "Cross-window: Early_vs_Pre_Change"],
+         AMBER, "#FEF3C7"),
+        ("Early Post-Label Window Aggregates", "~31 features",
+         ["Window: hours at and after the reference hour",
+          "Per vital (HR, SBP, MAP, Resp, O2Sat, Temp):",
+          "  • Mean / Slope (linear trend)",
+          "  • Observed Count / Mean / Min / Max",
+          "  • Observed SD / Range",
+          "  • FirstToLast_Change",
+          "Imputed with training-set column means (SimpleImputer)"],
+         "#7C3AED", "#F5F3FF"),
     ]
     for col, (title, count, items, color, bg) in zip(s2fe_cols, s2_groups):
         col.markdown(f"""
@@ -509,6 +533,13 @@ with st.expander("🔧 Stage 2 — Feature Engineering Breakdown (65 features)",
   {''.join(f'<div style="color:{SLATE_700};margin-bottom:2px;">• {i}</div>' for i in items)}
 </div>""", unsafe_allow_html=True)
 
+    st.markdown(
+        f"<div style='font-size:0.78rem;color:{SLATE_700};margin-top:0.6rem;line-height:1.7;'"
+        f">Stage 2 operates at the <b>patient level</b> — one feature row per patient, "
+        f"aggregated from all available ICU hours relative to the Stage 1 reference point. "
+        f"This contrasts with Stage 1 which operates at the <b>hourly row level</b>.</div>",
+        unsafe_allow_html=True,
+    )
     with st.expander("📋 All 65 Stage 2 Feature Names", expanded=False):
         for f in s2_feats:
             st.markdown(

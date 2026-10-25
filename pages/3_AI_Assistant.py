@@ -433,13 +433,26 @@ with st.sidebar:
 # ══════════════════════════════════════════════════════════════════════════════
 # CHAT DISPLAY
 # ══════════════════════════════════════════════════════════════════════════════
+st.markdown("---")
+st.caption(
+    "⚕ SepsiArc Medical AI Assistant provides educational information only. "
+    "Responses are AI-generated and may contain inaccuracies. "
+    "This assistant does not make Stage 1 or Stage 2 predictions and must not be used as a "
+    "substitute for clinical assessment by a qualified healthcare professional. "
+    "Sources: Surviving Sepsis Campaign (2021), Sepsis-3 Consensus Definitions (2016), "
+    "PhysioNet (Reyna et al., 2019). Powered by AIMLAPI."
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHAT DISPLAY
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("#### 💬 Chat")
 for msg in st.session_state.chat_messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CHAT INPUT
+# CHAT INPUT  — must be the very last element so it docks to the viewport bottom
 # ══════════════════════════════════════════════════════════════════════════════
 if prompt := st.chat_input("Ask about sepsis, SHAP, SOFA, how SepsiArc works…"):
     if prompt.strip():
@@ -461,16 +474,3 @@ if prompt := st.chat_input("Ask about sepsis, SHAP, SOFA, how SepsiArc works…"
         # Reset FAQ dedup key so same FAQ can be asked again after a manual question
         st.session_state.last_faq_processed = None
 
-# ══════════════════════════════════════════════════════════════════════════════
-# FOOTER
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("---")
-st.caption(
-    "⚕ SepsiArc Medical AI Assistant provides educational information only. "
-    "Responses are AI-generated and may contain inaccuracies. "
-    "This assistant does not make Stage 1 or Stage 2 predictions and must not be used as a "
-    "substitute for clinical assessment by a qualified healthcare professional. "
-    "Sources: Surviving Sepsis Campaign (2021), Sepsis-3 Consensus Definitions (2016), "
-    "PhysioNet (Reyna et al., 2019). Powered by AIMLAPI."
-)
-render_footer()
