@@ -902,8 +902,11 @@ st.markdown("---")
 st.markdown("### 📥 Download Stage 1 Report")
 
 import datetime as _dt
+import importlib as _ilib
 try:
-    from utils.pdf_report import build_stage1_pdf as _build_s1_pdf
+    import utils.pdf_report as _pdf_mod
+    _ilib.reload(_pdf_mod)  # force reload so Cloud cache is bypassed
+    _build_s1_pdf = _pdf_mod.build_stage1_pdf
     _hosp_str = (f"{float(_hosp):.1f} hr before ICU admission"
                  if _hosp != "N/A" else "N/A")
     _age_str  = (f"{float(_age):.0f} yrs" if _age != "N/A" else "N/A")
@@ -940,29 +943,51 @@ try:
     except Exception:
         _shap_png = None
 
-    _pdf_bytes = _build_s1_pdf(
-        patient_id      = _pid,
-        age             = _age_str,
-        gender          = _gend_lbl,
-        n_rows          = n_rows,
-        obs_start       = _obs_start,
-        obs_end         = _obs_end,
-        hosp_adm        = _hosp_str,
-        peak_prob       = peak_prob,
-        s1_thresh       = S1_THRESH,
-        n_alerts        = n_alerts,
-        peak_hour       = peak_hour,
-        first_alert_h   = first_alert_h,
-        res_label       = res_label,
-        trend_rows      = _trend_rows,
-        s2_eligible     = _s2_eligible,
-        s2_pre_hrs      = _s2_pre_hrs,
-        s2_post_hrs     = _s2_post_hrs,
-        hourly_rows     = _hourly_rows_pdf,
-        chart_png_bytes = _chart_png,
-        shap_png_bytes  = _shap_png,
-        lime_text       = None,
-    )
+    try:
+        _pdf_bytes = _build_s1_pdf(
+            patient_id      = _pid,
+            age             = _age_str,
+            gender          = _gend_lbl,
+            n_rows          = n_rows,
+            obs_start       = _obs_start,
+            obs_end         = _obs_end,
+            hosp_adm        = _hosp_str,
+            peak_prob       = peak_prob,
+            s1_thresh       = S1_THRESH,
+            n_alerts        = n_alerts,
+            peak_hour       = peak_hour,
+            first_alert_h   = first_alert_h,
+            res_label       = res_label,
+            trend_rows      = _trend_rows,
+            s2_eligible     = _s2_eligible,
+            s2_pre_hrs      = _s2_pre_hrs,
+            s2_post_hrs     = _s2_post_hrs,
+            hourly_rows     = _hourly_rows_pdf,
+            chart_png_bytes = _chart_png,
+            shap_png_bytes  = _shap_png,
+            lime_text       = None,
+        )
+    except TypeError:
+        # Fallback: old pdf_report signature (no new optional params)
+        _pdf_bytes = _build_s1_pdf(
+            patient_id    = _pid,
+            age           = _age_str,
+            gender        = _gend_lbl,
+            n_rows        = n_rows,
+            obs_start     = _obs_start,
+            obs_end       = _obs_end,
+            hosp_adm      = _hosp_str,
+            peak_prob     = peak_prob,
+            s1_thresh     = S1_THRESH,
+            n_alerts      = n_alerts,
+            peak_hour     = peak_hour,
+            first_alert_h = first_alert_h,
+            res_label     = res_label,
+            trend_rows    = _trend_rows,
+            s2_eligible   = _s2_eligible,
+            s2_pre_hrs    = _s2_pre_hrs,
+            s2_post_hrs   = _s2_post_hrs,
+        )
     _ts = _dt.datetime.now().strftime('%Y%m%d_%H%M')
     st.download_button(
         label="⬇️ Download Stage 1 Report (PDF)",

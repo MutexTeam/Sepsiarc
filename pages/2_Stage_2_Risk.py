@@ -845,9 +845,13 @@ st.markdown("---")
 st.markdown("### 📥 Download Reports")
 
 import datetime as _dt2
+import importlib as _ilib2
 
 try:
-    from utils.pdf_report import build_stage2_pdf as _build_s2_pdf, build_combined_pdf as _build_comb_pdf
+    import utils.pdf_report as _pdf_mod2
+    _ilib2.reload(_pdf_mod2)  # force reload so Cloud cache is bypassed
+    _build_s2_pdf   = _pdf_mod2.build_stage2_pdf
+    _build_comb_pdf = _pdf_mod2.build_combined_pdf
 
     _fname2   = _s2_pid
     _ts2      = _dt2.datetime.now().strftime('%Y%m%d_%H%M')
@@ -860,25 +864,44 @@ try:
     except Exception:
         _s2_obs_period = None
 
-    _s2_pdf_bytes = _build_s2_pdf(
-        patient_id       = _fname2,
-        age              = _age_str2,
-        gender           = _s2_gend_lbl,
-        n_total_rows     = n_total_rows,
-        s1_result_label  = result_label_s1,
-        s1_prob          = s1_prob,
-        ref_hour         = ref_hour,
-        n_pre            = n_pre,
-        n_early          = n_early,
-        prob_higher_risk = prob_higher_risk,
-        s2_thresh        = S2_THRESH,
-        risk_label       = risk_label,
-        data_sufficient  = data_sufficient,
-        trend_data       = trend_data,
-        shap_png_bytes   = None,
-        lime_text        = None,
-        obs_period       = _s2_obs_period,
-    )
+    try:
+        _s2_pdf_bytes = _build_s2_pdf(
+            patient_id       = _fname2,
+            age              = _age_str2,
+            gender           = _s2_gend_lbl,
+            n_total_rows     = n_total_rows,
+            s1_result_label  = result_label_s1,
+            s1_prob          = s1_prob,
+            ref_hour         = ref_hour,
+            n_pre            = n_pre,
+            n_early          = n_early,
+            prob_higher_risk = prob_higher_risk,
+            s2_thresh        = S2_THRESH,
+            risk_label       = risk_label,
+            data_sufficient  = data_sufficient,
+            trend_data       = trend_data,
+            shap_png_bytes   = None,
+            lime_text        = None,
+            obs_period       = _s2_obs_period,
+        )
+    except TypeError:
+        # Fallback: old pdf_report signature (no new optional params)
+        _s2_pdf_bytes = _build_s2_pdf(
+            patient_id       = _fname2,
+            age              = _age_str2,
+            gender           = _s2_gend_lbl,
+            n_total_rows     = n_total_rows,
+            s1_result_label  = result_label_s1,
+            s1_prob          = s1_prob,
+            ref_hour         = ref_hour,
+            n_pre            = n_pre,
+            n_early          = n_early,
+            prob_higher_risk = prob_higher_risk,
+            s2_thresh        = S2_THRESH,
+            risk_label       = risk_label,
+            data_sufficient  = data_sufficient,
+            trend_data       = trend_data,
+        )
 
     # Combined PDF — uses Stage 1 session_state data + Stage 2 results
     _s1_res_lbl = result_label_s1
