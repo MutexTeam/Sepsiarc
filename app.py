@@ -109,7 +109,7 @@ with ab2:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── MODEL PERFORMANCE SUMMARY ─────────────────────────────────────────────────
-st.markdown("### 📊 Model Performance Summary")
+st.markdown("### Model Performance Summary")
 st.caption(
     "Experimental test results on the held-out patient split (PhysioNet/CinC Challenge 2019). "
     "These are not clinical validation results. Stage 1 and Stage 2 solve different tasks and their metrics are not directly comparable."
@@ -157,7 +157,7 @@ with _perf_cols[1]:
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── SEPSIS OVERVIEW ───────────────────────────────────────────────────────────
-st.markdown("### 🩺 Sepsis at a Glance")
+st.markdown("### Sepsis at a Glance")
 st.caption("Key clinical criteria, warning signs, and biomarkers — evidence-based overview.")
 
 ov1, ov2, ov3 = st.columns(3)
@@ -223,7 +223,7 @@ st.markdown(
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── EPIDEMIOLOGY ──────────────────────────────────────────────────────────────
-st.markdown("### 📈 Sepsis Epidemiology")
+st.markdown("### Sepsis Epidemiology")
 st.caption("Trend data and organ involvement — contextualising the global clinical burden.")
 
 years     = list(range(2010, 2024))
@@ -272,7 +272,7 @@ plt.close()
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ── ACCESS CLINICAL MODULES ───────────────────────────────────────────────────
-st.markdown("### 🖥️ Clinical Modules")
+st.markdown("### Clinical Modules")
 st.caption("Navigate to the clinical assessment and decision-support tools.")
 
 s1_pos  = st.session_state.get("s1_positive",  False)
@@ -281,15 +281,15 @@ s2_ok   = s1_pos or s1_bord
 
 m1, m2, m3 = st.columns(3)
 modules = [
-    (m1, "🧬", "Stage 1 — Detection",
+    (m1, "[S1]", "Stage 1 — Detection",
      "Upload hourly ICU observation timeline (PSV/CSV/TXT). Receive a per-hour sepsis probability score and SHAP/LIME explanation.",
      TEAL, "pages/1_Stage_1_Detection.py", "Open Stage 1"),
-    (m2, "🔬", "Stage 2 — Risk Assessment",
+    (m2, "[S2]", "Stage 2 — Risk Assessment",
      ("Assess post-sepsis risk trajectory. Includes SHAP explanation and structured clinical review prompts."
       if s2_ok else "Run Stage 1 first. Available after a positive or borderline detection result."),
      RED if s2_ok else SLATE_400,
      "pages/2_Stage_2_Risk.py", "Open Stage 2"),
-    (m3, "💬", "Clinical Assistant",
+    (m3, "[AI]", "Clinical Assistant",
      "Evidence-based Q&A about sepsis, clinical scoring systems, SHAP, and how SepsiArc works.",
      GREEN, "pages/3_AI_Assistant.py", "Open Assistant"),
 ]
