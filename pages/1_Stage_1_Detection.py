@@ -668,11 +668,30 @@ with st.spinner("Computing SHAP explanation…"):
             sv = sv[0]
         except Exception:
             pass
-        # Fallback: classic TreeExplainer
+        # Fallback 1: classic TreeExplainer
         if sv is None:
-            _exp2     = shap.TreeExplainer(s1_model)
-            shap_vals = _exp2.shap_values(peak_row)
-            sv        = shap_vals[0] if isinstance(shap_vals, list) else shap_vals[0]
+            try:
+                _exp2     = shap.TreeExplainer(s1_model)
+                shap_vals = _exp2.shap_values(peak_row)
+                sv        = shap_vals[0] if isinstance(shap_vals, list) else shap_vals[0]
+            except Exception:
+                pass
+        # Fallback 2: model built-in feature importances (always available)
+        _shap_label = "SHAP Value"
+        if sv is None:
+            try:
+                booster = s1_model.get_booster()
+                scores  = booster.get_fscore()
+                sv = np.array([scores.get(f, 0.0) for f in S1_FEATURES], dtype=float)
+            except Exception:
+                sv = np.array(s1_model.feature_importances_, dtype=float)
+            _shap_label = "Feature Importance (SHAP unavailable on this environment)"
+            st.caption(
+                "Note: SHAP could not be computed in this environment "
+                "(XGBoost version incompatibility). Showing built-in XGBoost "
+                "feature importances instead — these rank features by overall gain, "
+                "not by direction of influence for this specific patient."
+            )
         shap_series = pd.Series(np.array(sv, dtype=float), index=S1_FEATURES)
         top10       = shap_series.abs().nlargest(10).index
         tv          = shap_series[top10]
@@ -683,7 +702,7 @@ with st.spinner("Computing SHAP explanation…"):
                  edgecolor="white", height=0.65)
         ax3.set_yticks(range(len(tv)))
         ax3.set_yticklabels(tv.index[::-1], fontsize=9)
-        ax3.set_xlabel("SHAP value  (positive → increases sepsis risk)", fontsize=9)
+        ax3.set_xlabel(f"{_shap_label}  (positive = increases sepsis risk)", fontsize=9)
         ax3.set_title(
             f"Top 10 Feature Contributions — Hour {peak_hour} (Prob {peak_prob*100:.1f}%)",
             fontweight="bold", fontsize=10, color=NAVY,

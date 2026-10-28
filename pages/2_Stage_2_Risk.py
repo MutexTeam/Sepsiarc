@@ -440,7 +440,13 @@ with res_col:
 
 with info_col:
     st.markdown("#### 📋 Patient / Prediction Information")
-    _s2_pid  = uploaded.name.replace(".psv","").replace(".csv","")
+    # Determine patient ID: from uploaded file name, or inherited from Stage 1 session
+    if uploaded is not None and hasattr(uploaded, "name"):
+        _s2_pid = uploaded.name.replace(".psv","").replace(".csv","").replace(".txt","")
+    elif _s1_patient_id_inh is not None:
+        _s2_pid = str(_s1_patient_id_inh)
+    else:
+        _s2_pid = "Unknown_Patient"
     _s2_age  = raw_df["Age"].dropna().iloc[0] if "Age" in raw_df.columns and raw_df["Age"].notna().any() else "N/A"
     _s2_gend = raw_df["Gender"].dropna().iloc[0] if "Gender" in raw_df.columns and raw_df["Gender"].notna().any() else "N/A"
     _s2_gend_lbl = ("Male" if float(_s2_gend)==1 else "Female") if _s2_gend != "N/A" else "N/A"
