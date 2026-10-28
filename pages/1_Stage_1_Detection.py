@@ -677,19 +677,25 @@ with st.spinner("Computing SHAP explanation…"):
             except Exception:
                 pass
         # Fallback 2: model built-in feature importances (always available)
+        # s1_model is a Booster (not XGBClassifier) — use get_score(), NOT feature_importances_
         _shap_label = "SHAP Value"
         if sv is None:
             try:
-                booster = s1_model.get_booster()
-                scores  = booster.get_fscore()
+                # get_score returns dict {feature_name: score}; align to S1_FEATURES order
+                scores = s1_model.get_score(importance_type="gain")
                 sv = np.array([scores.get(f, 0.0) for f in S1_FEATURES], dtype=float)
             except Exception:
-                sv = np.array(s1_model.feature_importances_, dtype=float)
+                try:
+                    # Legacy fallback: get_fscore() (same as get_score with weight type)
+                    scores = s1_model.get_fscore()
+                    sv = np.array([scores.get(f, 0.0) for f in S1_FEATURES], dtype=float)
+                except Exception:
+                    sv = np.zeros(len(S1_FEATURES), dtype=float)
             _shap_label = "Feature Importance (SHAP unavailable on this environment)"
             st.caption(
                 "Note: SHAP could not be computed in this environment "
-                "(XGBoost version incompatibility). Showing built-in XGBoost "
-                "feature importances instead — these rank features by overall gain, "
+                "(XGBoost version incompatibility). Showing XGBoost gain-based "
+                "feature importances instead — these rank features by overall predictive gain, "
                 "not by direction of influence for this specific patient."
             )
         shap_series = pd.Series(np.array(sv, dtype=float), index=S1_FEATURES)
