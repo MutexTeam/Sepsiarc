@@ -248,6 +248,57 @@ with s1c3:
 </div>
 """, unsafe_allow_html=True)
 
+# ── Stage 1 Confusion Matrix ───────────────────────────────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+with st.expander("📊 Stage 1 — Confusion Matrix (Test Set, Threshold = 0.143)", expanded=False):
+    st.markdown(f"""
+<div style="max-width:520px;">
+  <div style="font-size:0.78rem;color:{SLATE_700};margin-bottom:0.7rem;line-height:1.7;">
+    <b>Test set: 102,564 hourly observations</b> · 5,539 sepsis-positive (5.4%) · 97,025 sepsis-negative (94.6%)<br>
+    At threshold 0.143: <b>Sensitivity (Recall) = 70.97%</b> · <b>Specificity = 67.88%</b> · FDR = 88.80%
+  </div>
+  <table style="border-collapse:collapse;width:100%;font-size:0.82rem;text-align:center;">
+    <thead>
+      <tr>
+        <th style="padding:6px 10px;"></th>
+        <th style="padding:6px 10px;background:#E0F7FA;color:{NAVY};border-radius:6px 0 0 0;">Predicted Negative</th>
+        <th style="padding:6px 10px;background:#FFF1F2;color:{RED};border-radius:0 6px 0 0;">Predicted Positive</th>
+        <th style="padding:6px 10px;color:{SLATE_400};">Row Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding:6px 10px;font-weight:700;color:{TEAL};text-align:left;">Actual Negative</td>
+        <td style="padding:8px 10px;background:#E0F7FA;color:{NAVY};font-weight:800;font-size:1rem;">65,863<br><span style="font-size:0.68rem;font-weight:400;">TN</span></td>
+        <td style="padding:8px 10px;background:#FEE2E2;color:{RED};font-weight:700;">31,162<br><span style="font-size:0.68rem;font-weight:400;">FP</span></td>
+        <td style="padding:6px 10px;color:{SLATE_400};">97,025</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 10px;font-weight:700;color:{RED};text-align:left;">Actual Positive</td>
+        <td style="padding:8px 10px;background:#FEE2E2;color:{RED};font-weight:700;">1,608<br><span style="font-size:0.68rem;font-weight:400;">FN</span></td>
+        <td style="padding:8px 10px;background:#D1FAE5;color:#065F46;font-weight:800;font-size:1rem;">3,931<br><span style="font-size:0.68rem;font-weight:400;">TP</span></td>
+        <td style="padding:6px 10px;color:{SLATE_400};">5,539</td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="margin-top:0.7rem;font-size:0.72rem;color:{SLATE_400};line-height:1.6;">
+    High FP count is expected: threshold 0.143 was deliberately chosen to achieve &ge;70% recall
+    on the minority sepsis class. The application prioritises <b>not missing sepsis</b> over minimising false alarms.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# PR-AUC clarification note
+st.markdown(f"""
+<div style="background:#EFF6FF;border-radius:10px;padding:0.75rem 1rem;margin-top:0.5rem;
+            font-size:0.76rem;color:#1E3A5F;line-height:1.7;">
+  <b>PR-AUC note:</b> 0.1605 is the held-out <b>test set</b> PR-AUC.
+  0.1728 is the <b>validation set</b> PR-AUC used during model selection.
+  Both values describe Model A — the difference reflects the split (validation vs. test).
+  Low PR-AUC is expected given the severe class imbalance (~5.4% positive rows).
+</div>
+""", unsafe_allow_html=True)
+
 # ── Stage 1 Feature Engineering Breakdown ─────────────────────────────────
 st.markdown("<br>", unsafe_allow_html=True)
 with st.expander("🔧 Stage 1 — Feature Engineering Breakdown (135 features)", expanded=False):
@@ -395,12 +446,14 @@ with s2c2:
   </div>
 """, unsafe_allow_html=True)
     for metric, val, note in [
-        ("ROC-AUC",   s2_results.get("ROC_AUC",   0.8294), "Strong patient-level discrimination"),
-        ("PR-AUC",    s2_results.get("PR_AUC",    0.8001), "High-risk class precision-recall"),
-        ("Recall",    s2_results.get("Recall",    0.8548), "85.5% of higher-risk patients detected"),
-        ("Precision", s2_results.get("Precision", 0.6235), "62.4% of flagged patients are true higher risk"),
-        ("F1 Score",  s2_results.get("F1",        0.7211), "Balanced precision-recall at threshold 0.29"),
-        ("Accuracy",  s2_results.get("Accuracy",  0.7148), "Overall patient-level accuracy"),
+        ("ROC-AUC",     s2_results.get("ROC_AUC",   0.8294), "Strong patient-level discrimination"),
+        ("PR-AUC",      s2_results.get("PR_AUC",    0.8001), "High-risk class precision-recall"),
+        ("Recall",      s2_results.get("Recall",    0.8548), "85.5% of higher-risk patients detected"),
+        ("Precision",   s2_results.get("Precision", 0.6235), "62.4% of flagged patients are true higher risk"),
+        ("F1 Score",    s2_results.get("F1",        0.7211), "Balanced precision-recall at threshold 0.29"),
+        ("Accuracy",    s2_results.get("Accuracy",  0.7148), "Overall patient-level accuracy"),
+        ("Brier Score", s2_results.get("Brier_Score", 0.1659), "Calibration quality (lower = better; 0 = perfect)"),
+        ("Log Loss",    s2_results.get("Log_Loss",    0.5021), "Probability calibration loss (lower = better)"),
     ]:
         bar_pct   = min(int(val * 100), 100)
         bar_color = GREEN if val >= 0.7 else AMBER if val >= 0.5 else RED
@@ -496,6 +549,49 @@ with s2c3:
 """, unsafe_allow_html=True)
 
 # ── Stage 2 Feature Breakdown ─────────────────────────────────────────────
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Stage 2 Confusion Matrix
+with st.expander("📊 Stage 2 — Confusion Matrix (Test Set, Threshold = 0.29)", expanded=False):
+    st.markdown(f"""
+<div style="max-width:520px;">
+  <div style="font-size:0.78rem;color:{SLATE_700};margin-bottom:0.7rem;line-height:1.7;">
+    <b>Test set: 575 patients</b> (sepsis-positive sub-cohort eligible for Stage 2)<br>
+    248 Higher-Risk (43.1%) &middot; 327 Lower-Risk (56.9%)<br>
+    At threshold 0.29: <b>Sensitivity (Recall) = 85.48%</b> &middot; <b>Specificity = 60.86%</b>
+  </div>
+  <table style="border-collapse:collapse;width:100%;font-size:0.82rem;text-align:center;">
+    <thead>
+      <tr>
+        <th style="padding:6px 10px;"></th>
+        <th style="padding:6px 10px;background:#E0F7FA;color:{NAVY};border-radius:6px 0 0 0;">Predicted Lower Risk</th>
+        <th style="padding:6px 10px;background:#FFF1F2;color:{RED};border-radius:0 6px 0 0;">Predicted Higher Risk</th>
+        <th style="padding:6px 10px;color:{SLATE_400};">Row Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="padding:6px 10px;font-weight:700;color:{TEAL};text-align:left;">Actual Lower Risk</td>
+        <td style="padding:8px 10px;background:#E0F7FA;color:{NAVY};font-weight:800;font-size:1rem;">199<br><span style="font-size:0.68rem;font-weight:400;">TN</span></td>
+        <td style="padding:8px 10px;background:#FEE2E2;color:{RED};font-weight:700;">128<br><span style="font-size:0.68rem;font-weight:400;">FP</span></td>
+        <td style="padding:6px 10px;color:{SLATE_400};">327</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 10px;font-weight:700;color:{RED};text-align:left;">Actual Higher Risk</td>
+        <td style="padding:8px 10px;background:#FEE2E2;color:{RED};font-weight:700;">36<br><span style="font-size:0.68rem;font-weight:400;">FN</span></td>
+        <td style="padding:8px 10px;background:#D1FAE5;color:#065F46;font-weight:800;font-size:1rem;">212<br><span style="font-size:0.68rem;font-weight:400;">TP</span></td>
+        <td style="padding:6px 10px;color:{SLATE_400};">248</td>
+      </tr>
+    </tbody>
+  </table>
+  <div style="margin-top:0.7rem;font-size:0.72rem;color:{SLATE_400};line-height:1.6;">
+    Threshold 0.29 was selected to maximise recall of the Higher-Risk class (85.5%).
+    Stage 2 correctly identifies 212 of 248 Higher-Risk patients.
+    FP rate of 39.1% reflects the conservative threshold favouring sensitivity over specificity.
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
 st.markdown("<br>", unsafe_allow_html=True)
 with st.expander("🔧 Stage 2 — Feature Engineering Breakdown (65 features)", expanded=False):
     s2fe_cols = st.columns(3)

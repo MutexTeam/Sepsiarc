@@ -122,16 +122,17 @@ Glucose, Lactate, Hct, Hgb, WBC, Platelets, Age, Gender, HospAdmTime, ICULOS
 
 STAGE 2 — Post-Sepsis Risk Assessment:
 - Accessible only after Stage 1 ALERT or BORDERLINE result
-- Algorithm: LightGBM
-- Input: same PSV/CSV file as Stage 1 (re-upload)
-- 65 engineered features including shock_index, SIRS_score, oxygenation_index, rolling 3h stats, \
-lag/delta features, early_icu and late_icu timing flags
-- Decision threshold: 0.58
-- Output: HIGH RISK or LOW RISK per hour + overall patient assessment
-- Test set performance: AUROC 0.9631, F1 0.7486, Precision 0.7936, Recall 0.7083
-- Stage 2 label is a project-defined proxy severity classification — not a validated long-term \
-mortality or survivorship prediction
-- SHAP explanation provided for peak-risk hour
+- Algorithm: XGBoost (patient-level classifier, max_depth=2)
+- Input: same PSV/CSV file as Stage 1 (auto-inherited from Stage 1 session, or re-upload)
+- 65 engineered patient-level aggregate features from pre-label and early post-label windows \
+(vital sign means, std, min, max, trends; shock index; SIRS score; timing flags)
+- Decision threshold: 0.29
+- Output: HIGHER RISK or LOWER RISK (single patient-level classification)
+- Test set performance (575 patients): ROC-AUC 0.8294, PR-AUC 0.8001, \
+Recall 85.48%, Precision 62.35%, F1 72.11%, Accuracy 71.48%
+- Stage 2 target (Risk_50pct) is an engineered physiological-risk proxy based on persistent \
+post-label abnormalities in HR, Resp, Temp, MAP — NOT a validated mortality or survivorship prediction
+- SHAP and LIME explanations provided for the patient-level prediction
 
 EXPLAINABILITY (SHAP):
 - Both stages use SHAP TreeExplainer

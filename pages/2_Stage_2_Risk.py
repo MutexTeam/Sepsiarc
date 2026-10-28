@@ -122,10 +122,10 @@ with st.expander("ℹ️ Stage 2 Model Information", expanded=False):
     mi4.metric("Recall",     f"{m.get('Recall',0)*100:.1f}%" if model_ok else "-")
     mi5.metric("Features",   "65")
     st.caption(
-        f"XGBoost post-sepsis risk model Â· 65 patient-level aggregate features Â· "
-        f"Target: Risk_50pct Â· "
-        f"AUROC: {m.get('ROC_AUC',0):.4f} Â· F1: {m.get('F1',0):.4f} Â· "
-        f"Precision: {m.get('Precision',0):.4f} Â· Recall: {m.get('Recall',0):.4f} Â· "
+        f"XGBoost post-sepsis risk model · 65 patient-level aggregate features · "
+        f"Target: Risk_50pct · "
+        f"AUROC: {m.get('ROC_AUC',0):.4f} · F1: {m.get('F1',0):.4f} · "
+        f"Precision: {m.get('Precision',0):.4f} · Recall: {m.get('Recall',0):.4f} · "
         f"Threshold: {S2_THRESH:.2f}"
     )
 
@@ -136,32 +136,54 @@ if not model_ok:
 
 st.markdown("---")
 
-# ===== FILE UPLOAD =============================================================
-st.markdown("### 📂 Upload Patient Data File for Stage 2")
-st.markdown(
-    '<div style="background:#FEF3C7;border-radius:10px;padding:0.9rem 1.4rem;'
-    'border-left:4px solid #B45309;margin-bottom:1.2rem;">'
-    '<b style="color:#0D2137;">📋 Stage 2 Assessment</b><br>'
-    '<span style="font-size:0.82rem;color:#334155;">'
-    'Upload the <b>same PSV or CSV file</b> as Stage 1 (one patient, hourly rows). '
-    'Stage 2 extracts <b>patient-level aggregate features</b> from the pre-sepsis and '
-    'early post-sepsis windows around the Stage 1 reference hour.</span></div>',
-    unsafe_allow_html=True,
-)
+# ===== FILE UPLOAD / SESSION INHERITANCE =======================================
+# Try to inherit raw patient data from Stage 1 session state (avoids re-upload)
+_s1_raw_df_inherited = st.session_state.get("s1_raw_df", None)
+_s1_patient_id_inh   = st.session_state.get("s1_patient_id", None)
 
-uploaded = st.file_uploader(
-    "Upload PSV or CSV patient file",
-    type=["psv", "csv", "txt"],
-    help="Pipe-separated or comma-separated, one hourly row per line.",
-    key="s2_file_uploader",
-)
-
-if uploaded is None:
-    st.info("⬆️ Upload the patient's hourly data file above to begin Stage 2 risk assessment.")
-    with st.expander("📋 Expected columns (any subset, any order)", expanded=False):
-        st.code("HR|O2Sat|Temp|SBP|MAP|DBP|Resp|Age|HospAdmTime|ICULOS", language=None)
-    render_footer()
-    st.stop()
+_override_file = None
+if _s1_raw_df_inherited is not None:
+    st.markdown(
+        '<div style="background:#D1FAE5;border-radius:10px;padding:0.9rem 1.4rem;'
+        'border-left:4px solid #059669;margin-bottom:1.2rem;">'
+        '<b style="color:#065F46;">✅ Patient data inherited from Stage 1</b><br>'
+        '<span style="font-size:0.82rem;color:#334155;">'
+        f'File <b>{_s1_patient_id_inh}</b> loaded automatically from Stage 1. '
+        'No re-upload required.</span></div>',
+        unsafe_allow_html=True,
+    )
+    with st.expander("🔄 Upload a different file instead", expanded=False):
+        _override_file = st.file_uploader(
+            "Upload PSV or CSV patient file (override)",
+            type=["psv", "csv", "txt"],
+            help="Use only if you want to assess a different patient file.",
+            key="s2_file_override",
+        )
+    uploaded = _override_file  # None -> use inherited df; file obj -> override
+else:
+    st.markdown("### 📂 Upload Patient Data File for Stage 2")
+    st.markdown(
+        '<div style="background:#FEF3C7;border-radius:10px;padding:0.9rem 1.4rem;'
+        'border-left:4px solid #B45309;margin-bottom:1.2rem;">'
+        '<b style="color:#0D2137;">📋 Stage 2 Assessment</b><br>'
+        '<span style="font-size:0.82rem;color:#334155;">'
+        'Upload the <b>same PSV or CSV file</b> as Stage 1 (one patient, hourly rows). '
+        'Stage 2 extracts <b>patient-level aggregate features</b> from the pre-sepsis and '
+        'early post-sepsis windows around the Stage 1 reference hour.</span></div>',
+        unsafe_allow_html=True,
+    )
+    uploaded = st.file_uploader(
+        "Upload PSV or CSV patient file",
+        type=["psv", "csv", "txt"],
+        help="Pipe-separated or comma-separated, one hourly row per line.",
+        key="s2_file_uploader",
+    )
+    if uploaded is None:
+        st.info("🆙️ Upload the patient's hourly data file above to begin Stage 2 risk assessment.")
+        with st.expander("📋 Expected columns (any subset, any order)", expanded=False):
+            st.code("HR|O2Sat|Temp|SBP|MAP|DBP|Resp|Age|HospAdmTime|ICULOS", language=None)
+        render_footer()
+        st.stop()
 
 
 # ===== PARSING =================================================================
@@ -177,13 +199,23 @@ def parse_patient_file(uploaded_file) -> pd.DataFrame:
     return df
 
 
-with st.spinner("Parsing file..."):
-    try:
-        raw_df = parse_patient_file(uploaded)
-    except Exception as e:
-        st.error(f"Could not parse file: {e}")
-        render_footer()
-        st.stop()
+if uploaded is not None:
+    # Explicit upload or override -- parse fresh
+    with st.spinner("Parsing file..."):
+        try:
+            raw_df = parse_patient_file(uploaded)
+        except Exception as e:
+            st.error(f"Could not parse file: {e}")
+            render_footer()
+            st.stop()
+elif _s1_raw_df_inherited is not None:
+    # Use the dataframe inherited from Stage 1
+    raw_df = _s1_raw_df_inherited.copy()
+else:
+    # Fallback -- should not be reached (stop() called above)
+    st.error("No patient data available. Please upload a file.")
+    render_footer()
+    st.stop()
 
 n_total_rows = len(raw_df)
 if n_total_rows == 0:
@@ -281,8 +313,12 @@ def build_s2_input(feat_dict: dict) -> pd.DataFrame:
     return pd.DataFrame([row], columns=S2_FEATURES)
 
 
-# Reference hour determination
-if s1_peak_hour is not None:
+# Reference hour determination -- prefer first_alert_h (first Stage 1 alert hour),
+# fall back to peak_hour, then data median.
+s1_first_alert_h = st.session_state.get("s1_first_alert_h", None)
+if s1_first_alert_h is not None:
+    ref_hour = int(s1_first_alert_h)
+elif s1_peak_hour is not None:
     ref_hour = int(s1_peak_hour)
 elif "ICULOS" in raw_df.columns:
     if "SepsisLabel" in raw_df.columns:
@@ -303,6 +339,25 @@ early_rows = raw_df[raw_df["ICULOS"] >= ref_hour] if "ICULOS" in raw_df.columns 
 n_pre   = len(pre_rows)
 n_early = len(early_rows)
 data_sufficient = (n_pre >= 1) or (n_early >= 1)
+
+# Temporal window methodology callout
+st.markdown(
+    f'<div style="background:#EFF6FF;border-radius:10px;padding:0.9rem 1.4rem;'
+    f'border-left:4px solid #2563EB;margin-bottom:1.2rem;">'
+    f'<b style="color:#1E3A5F;">🕒 Temporal Window Methodology</b><br>'
+    f'<span style="font-size:0.82rem;color:#334155;line-height:1.7;">'
+    f'<b>Reference hour (h₀):</b> ICULOS = {ref_hour} '
+    f'(first Stage 1 alert hour, or peak hour if no alert in this session)<br>'
+    f'<b>Pre-label window:</b> hours with ICULOS &lt; {ref_hour} — used to compute '
+    f'baseline and trend aggregates (mean, std, min, max over vital signs)<br>'
+    f'<b>Early post-label window:</b> hours with ICULOS &ge; {ref_hour} — '
+    f'first post-reference observations used for early-post aggregates<br>'
+    f'<b style="color:#9F1239;">Note:</b> Observations beyond the early window '
+    f'were used ONLY during training to construct the Risk_50pct target label '
+    f'and are <b>not</b> used as predictive inputs at inference.'
+    f'</span></div>',
+    unsafe_allow_html=True,
+)
 
 with st.spinner("Engineering Stage 2 patient-level features..."):
     try:
@@ -821,8 +876,8 @@ try:
     _s1_obs_s    = 1
     _s1_obs_e    = _s1_n_rows
 
-    # Stage 1 trend rows (not available in Stage 2 session — pass empty)
-    _s1_trend_r  = []
+    # Stage 1 trend rows — inherit from session_state if Stage 1 was run first
+    _s1_trend_r  = st.session_state.get("s1_trend_rows", [])
 
     _comb_pdf_bytes = _build_comb_pdf(
         patient_id       = _fname2,

@@ -138,7 +138,7 @@ with ds2:
         ("ICU Patients",       "40,336", TEAL),
         ("Hourly Observations","~1.55M", NAVY),
         ("Sepsis Prevalence",  "~1.8%",  AMBER),
-        ("Stage 1 Features",   "79",     GREEN),
+        ("Stage 1 Features",   "135",   GREEN),
         ("Stage 2 Features",   "65",     RED),
     ]:
         st.markdown(

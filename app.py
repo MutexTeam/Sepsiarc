@@ -108,6 +108,54 @@ with ab2:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
+# ── MODEL PERFORMANCE SUMMARY ─────────────────────────────────────────────────
+st.markdown("### 📊 Model Performance Summary")
+st.caption(
+    "Experimental test results on the held-out patient split (PhysioNet/CinC Challenge 2019). "
+    "These are not clinical validation results. Stage 1 and Stage 2 solve different tasks and their metrics are not directly comparable."
+)
+
+_perf_cols = st.columns(2)
+with _perf_cols[0]:
+    st.markdown(
+        f'<div style="background:#fff;border-radius:14px;padding:1.3rem 1.6rem;'
+        f'box-shadow:0 2px 12px rgba(14,116,144,0.08);border-top:5px solid {TEAL};">'
+        f'<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;'
+        f'letter-spacing:1.3px;color:{SLATE_400};margin-bottom:0.7rem;">Stage 1 — Hourly Sepsis Screening</div>'
+        f'<div style="font-size:0.78rem;color:{SLATE_700};line-height:2.0;">'
+        f'<b>Algorithm:</b> XGBoost (Regularized Cost-Sensitive, Model A)<br>'
+        f'<b>Features:</b> 135 engineered clinical features<br>'
+        f'<b>Decision Threshold:</b> 0.143 (Sepsis Alert) &nbsp;|&nbsp; 0.080 (Borderline)<br>'
+        f'<b>Accuracy:</b> 68.05% &nbsp;·&nbsp; <b>Precision:</b> 11.20% &nbsp;·&nbsp; <b>Recall:</b> 70.97%<br>'
+        f'<b>F1-score:</b> 19.35% &nbsp;·&nbsp; <b>ROC-AUC:</b> 0.7587 &nbsp;·&nbsp; <b>PR-AUC:</b> 0.1605'
+        f'</div>'
+        f'<div style="margin-top:0.7rem;font-size:0.69rem;color:{SLATE_400};font-style:italic;">'
+        f'Low precision reflects severe class imbalance (~5.5% sepsis rows). Threshold is set low to maximise recall.'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+with _perf_cols[1]:
+    st.markdown(
+        f'<div style="background:#fff;border-radius:14px;padding:1.3rem 1.6rem;'
+        f'box-shadow:0 2px 12px rgba(0,0,0,0.07);border-top:5px solid {RED};">'
+        f'<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;'
+        f'letter-spacing:1.3px;color:{SLATE_400};margin-bottom:0.7rem;">Stage 2 — Patient-Level Risk Stratification</div>'
+        f'<div style="font-size:0.78rem;color:{SLATE_700};line-height:2.0;">'
+        f'<b>Algorithm:</b> XGBoost (Patient-Level, max_depth=2)<br>'
+        f'<b>Features:</b> 65 patient-level aggregate features<br>'
+        f'<b>Decision Threshold:</b> 0.29 &nbsp;|&nbsp; Target: Risk_50pct physiological-risk proxy<br>'
+        f'<b>Accuracy:</b> 71.48% &nbsp;·&nbsp; <b>Precision:</b> 62.35% &nbsp;·&nbsp; <b>Recall:</b> 85.48%<br>'
+        f'<b>F1-score:</b> 72.11% &nbsp;·&nbsp; <b>ROC-AUC:</b> 0.8294 &nbsp;·&nbsp; <b>PR-AUC:</b> 0.8001'
+        f'</div>'
+        f'<div style="margin-top:0.7rem;font-size:0.69rem;color:{SLATE_400};font-style:italic;">'
+        f'Stage 2 target is an engineered physiological-risk proxy — not a validated mortality or survivorship prediction.'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown("<br>", unsafe_allow_html=True)
+
 # ── SEPSIS OVERVIEW ───────────────────────────────────────────────────────────
 st.markdown("### 🩺 Sepsis at a Glance")
 st.caption("Key clinical criteria, warning signs, and biomarkers — evidence-based overview.")
@@ -164,9 +212,9 @@ with ov3:
 st.markdown(
     '<div style="background:#E0F7FA;border:1px solid #67E8F9;border-radius:10px;'
     'padding:0.9rem 1.35rem;margin-top:0.75rem;font-size:0.81rem;color:' + SLATE_700 + ';line-height:1.7;">'
-    '<b style="color:' + TEAL + ';">SepsiArc Stage 1</b> screens for sepsis risk using 79 engineered clinical features. '
-    'A <b>positive (&ge;33%)</b> or <b>borderline (15–33%)</b> result unlocks '
-    '<b>Stage 2</b> for post-sepsis risk assessment with SHAP explanations. '
+    '<b style="color:' + TEAL + ';">SepsiArc Stage 1</b> screens for sepsis risk using 135 engineered clinical features. '
+    'A <b>Sepsis Alert (&ge;14.3%)</b> or <b>Borderline (8.0–14.3%)</b> result unlocks '
+    '<b>Stage 2</b> for post-sepsis physiological-risk stratification with SHAP and LIME explanations. '
     'All outputs are for clinician review — not autonomous clinical decisions.'
     '</div>',
     unsafe_allow_html=True
@@ -234,7 +282,7 @@ s2_ok   = s1_pos or s1_bord
 m1, m2, m3 = st.columns(3)
 modules = [
     (m1, "🧬", "Stage 1 — Detection",
-     "Enter vital signs and lab values. Receive a sepsis probability score, SIRS/qSOFA breakdown, and SHAP explanation.",
+     "Upload hourly ICU observation timeline (PSV/CSV/TXT). Receive a per-hour sepsis probability score and SHAP/LIME explanation.",
      TEAL, "pages/1_Stage_1_Detection.py", "Open Stage 1"),
     (m2, "🔬", "Stage 2 — Risk Assessment",
      ("Assess post-sepsis risk trajectory. Includes SHAP explanation and structured clinical review prompts."

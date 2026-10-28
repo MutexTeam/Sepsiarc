@@ -394,6 +394,12 @@ st.session_state["s1_borderline"]    = (not patient_high) and (peak_prob >= 0.08
 st.session_state["s1_result_df"]     = result_df
 st.session_state["s1_peak_hour"]     = peak_hour
 st.session_state["s1_n_hours"]       = n_rows
+st.session_state["s1_first_alert_h"] = first_alert_h
+st.session_state["s1_n_alerts"]      = n_alerts
+# Store the raw dataframe for Stage 2 auto-inheritance (avoids re-upload)
+_s1_file_name = uploaded.name
+st.session_state["s1_raw_df"]        = raw_df.copy()
+st.session_state["s1_patient_id"]    = _s1_file_name.replace(".psv","").replace(".csv","").replace(".txt","")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # RESULTS DISPLAY
@@ -556,17 +562,21 @@ if _trend_rows:
 else:
     st.info("No standard vital sign columns found in the uploaded file for trend summary.")
 
+# Store trend rows in session state so Stage 2 can include them in the combined PDF
+st.session_state["s1_trend_rows"] = _trend_rows
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PER-HOUR TIMELINE CHART
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
 st.markdown("### 📈 Hourly Sepsis Probability Timeline")
-st.caption(f"Threshold line at {S1_THRESH:.3f}. Red bars = sepsis alert hours.")
+st.caption(f"Sepsis Alert threshold at {S1_THRESH:.3f} (navy dashed) · Borderline threshold at 0.080 (amber dotted) · Red bars = sepsis alert hours.")
 
 fig, ax = plt.subplots(figsize=(12, 3.6), facecolor="white")
 bar_colors = [RED if l else "#BAE6FD" for l in labels]
 ax.bar(hours, probs, color=bar_colors, alpha=0.85, width=0.7, edgecolor="white")
-ax.axhline(S1_THRESH, color=NAVY, lw=1.4, linestyle="--", label=f"Threshold ({S1_THRESH:.3f})")
+ax.axhline(S1_THRESH, color=NAVY, lw=1.4, linestyle="--", label=f"Sepsis Alert ({S1_THRESH:.3f})")
+ax.axhline(0.080,    color=AMBER, lw=1.2, linestyle=":",  label="Borderline (0.080)")
 ax.set_xlabel("ICU Hour (ICULOS)", fontsize=9, color="#475569")
 ax.set_ylabel("Sepsis Probability", fontsize=9, color="#475569")
 ax.set_title("Predicted Sepsis Probability per Hour", fontweight="bold", fontsize=10, color=NAVY)
