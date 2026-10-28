@@ -854,6 +854,12 @@ try:
     _age_str2 = (f"{float(_s2_age):.0f} yrs" if _s2_age != "N/A" else "N/A")
 
     # Stage 2 PDF
+    # -- obs_period for Stage 2 PDF
+    try:
+        _s2_obs_period = f"Hour {obs_start} to Hour {obs_end}"
+    except Exception:
+        _s2_obs_period = None
+
     _s2_pdf_bytes = _build_s2_pdf(
         patient_id       = _fname2,
         age              = _age_str2,
@@ -869,6 +875,9 @@ try:
         risk_label       = risk_label,
         data_sufficient  = data_sufficient,
         trend_data       = trend_data,
+        shap_png_bytes   = None,
+        lime_text        = None,
+        obs_period       = _s2_obs_period,
     )
 
     # Combined PDF — uses Stage 1 session_state data + Stage 2 results

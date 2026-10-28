@@ -536,13 +536,13 @@ _vitals_display = [
 def _trend_arrow(series):
     s = series.dropna()
     if len(s) < 2:
-        return "↔️ Stable"
+        return "Stable"
     delta = s.iloc[-1] - s.iloc[-min(6, len(s))]
     if delta > s.std() * 0.3:
-        return "↗️ Increasing"
+        return "Increasing"
     elif delta < -s.std() * 0.3:
-        return "↘️ Decreasing"
-    return "↔️ Stable"
+        return "Decreasing"
+    return "Stable"
 
 _trend_rows = []
 for vname, vlabel in _vitals_display:
@@ -908,24 +908,60 @@ try:
                  if _hosp != "N/A" else "N/A")
     _age_str  = (f"{float(_age):.0f} yrs" if _age != "N/A" else "N/A")
 
+    # -- Build hourly_rows from result_df (match keys expected by pdf_report.py)
+    _hourly_rows_pdf = None
+    try:
+        if result_df is not None and not result_df.empty:
+            _hourly_rows_pdf = [
+                {
+                    'Hour':     int(r.get('Hour (ICULOS)', r.get('Hour', i+1))),
+                    'Prob':     float(r.get('Sepsis Prob (%)', r.get('Prob', 0.0))),
+                    'Category': str(r.get('Prediction', r.get('Category', ''))),
+                    'Alert':    float(r.get('Sepsis Prob (%)', r.get('Prob', 0.0))) >= (S1_THRESH * 100),
+                }
+                for i, r in enumerate(result_df.to_dict('records'))
+            ]
+    except Exception:
+        _hourly_rows_pdf = None
+
+    # -- Retrieve chart PNG bytes (_buf1 already seeked when displayed)
+    _chart_png = None
+    try:
+        _buf1.seek(0)
+        _chart_png = _buf1.read()
+    except Exception:
+        _chart_png = None
+
+    # -- Retrieve SHAP PNG bytes (_buf3 created inside SHAP block)
+    _shap_png = None
+    try:
+        _buf3.seek(0)
+        _shap_png = _buf3.read()
+    except Exception:
+        _shap_png = None
+
     _pdf_bytes = _build_s1_pdf(
-        patient_id   = _pid,
-        age          = _age_str,
-        gender       = _gend_lbl,
-        n_rows       = n_rows,
-        obs_start    = _obs_start,
-        obs_end      = _obs_end,
-        hosp_adm     = _hosp_str,
-        peak_prob    = peak_prob,
-        s1_thresh    = S1_THRESH,
-        n_alerts     = n_alerts,
-        peak_hour    = peak_hour,
-        first_alert_h= first_alert_h,
-        res_label    = res_label,
-        trend_rows   = _trend_rows,
-        s2_eligible  = _s2_eligible,
-        s2_pre_hrs   = _s2_pre_hrs,
-        s2_post_hrs  = _s2_post_hrs,
+        patient_id      = _pid,
+        age             = _age_str,
+        gender          = _gend_lbl,
+        n_rows          = n_rows,
+        obs_start       = _obs_start,
+        obs_end         = _obs_end,
+        hosp_adm        = _hosp_str,
+        peak_prob       = peak_prob,
+        s1_thresh       = S1_THRESH,
+        n_alerts        = n_alerts,
+        peak_hour       = peak_hour,
+        first_alert_h   = first_alert_h,
+        res_label       = res_label,
+        trend_rows      = _trend_rows,
+        s2_eligible     = _s2_eligible,
+        s2_pre_hrs      = _s2_pre_hrs,
+        s2_post_hrs     = _s2_post_hrs,
+        hourly_rows     = _hourly_rows_pdf,
+        chart_png_bytes = _chart_png,
+        shap_png_bytes  = _shap_png,
+        lime_text       = None,
     )
     _ts = _dt.datetime.now().strftime('%Y%m%d_%H%M')
     st.download_button(
