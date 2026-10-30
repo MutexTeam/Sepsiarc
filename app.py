@@ -269,9 +269,8 @@ ax.tick_params(labelsize=7.5); ax.grid(True, axis="x", alpha=0.2); ax.set_xlim(0
 plt.tight_layout(pad=2.0)
 _buf_home = __import__('io').BytesIO()
 fig.savefig(_buf_home, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+st.pyplot(fig)
 plt.close(fig)
-_buf_home.seek(0)
-st.image(_buf_home.getvalue(), width='stretch')
 
 st.markdown("<br>", unsafe_allow_html=True)
 
