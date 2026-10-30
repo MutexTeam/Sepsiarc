@@ -381,7 +381,7 @@ with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
     fig.savefig(_buf_fi, format='png', dpi=100, bbox_inches='tight', facecolor='white')
     plt.close(fig)
     _buf_fi.seek(0)
-    st.image(_buf_fi, width='stretch')
+    st.image(_buf_fi.getvalue(), width='stretch')
     st.caption(
         "ICULOS (ICU length of stay) is the most influential feature — consistent with clinical "
         "evidence that sepsis risk increases over ICU stay. Lactate, Temp, and Shock_Index "

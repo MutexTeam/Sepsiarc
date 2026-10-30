@@ -271,7 +271,7 @@ _buf_home = __import__('io').BytesIO()
 fig.savefig(_buf_home, format='png', dpi=100, bbox_inches='tight', facecolor='white')
 plt.close(fig)
 _buf_home.seek(0)
-st.image(_buf_home, width='stretch')
+st.image(_buf_home.getvalue(), width='stretch')
 
 st.markdown("<br>", unsafe_allow_html=True)
 

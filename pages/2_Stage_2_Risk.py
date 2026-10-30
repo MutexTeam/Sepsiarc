@@ -681,7 +681,7 @@ with st.spinner("Computing SHAP explanation..."):
                       facecolor="white")
         plt.close(fig_s)
         _buf_s.seek(0)
-        st.image(_buf_s, width='stretch')
+        st.image(_buf_s.getvalue(), width='stretch')
 
     except Exception as e:
         st.info(f"SHAP explanation unavailable: {str(e)[:200]}")
@@ -766,7 +766,7 @@ with st.spinner("Computing LIME explanation..."):
                       facecolor="white")
         plt.close(fig_l)
         _buf_l.seek(0)
-        st.image(_buf_l, width='stretch')
+        st.image(_buf_l.getvalue(), width='stretch')
         st.caption("LIME describes local model behaviour — not clinical causation.")
 
     except ImportError:
