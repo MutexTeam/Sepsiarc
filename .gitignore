@@ -39,3 +39,6 @@ desktop.ini
 
 # Streamlit cache
 .streamlit/cache/
+
+# Generated test / report PDFs (not source code)
+SepsiArc_*.pdf
