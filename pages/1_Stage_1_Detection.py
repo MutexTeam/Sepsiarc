@@ -589,8 +589,9 @@ ax.spines["right"].set_visible(False)
 plt.tight_layout()
 _buf1 = io.BytesIO()
 fig.savefig(_buf1, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-st.pyplot(fig, use_container_width=True)
 plt.close(fig)
+_buf1.seek(0)
+st.image(_buf1, use_container_width=True)
 
 # True labels overlay (if available)
 if "SepsisLabel" in raw_df.columns:
@@ -610,8 +611,9 @@ if "SepsisLabel" in raw_df.columns:
         plt.tight_layout()
         _buf2 = io.BytesIO()
         fig2.savefig(_buf2, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-        st.pyplot(fig2, use_container_width=True)
         plt.close(fig2)
+        _buf2.seek(0)
+        st.image(_buf2, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HOUR-BY-HOUR TABLE
@@ -720,8 +722,9 @@ with st.spinner("Computing SHAP explanation…"):
         plt.tight_layout()
         _buf3 = io.BytesIO()
         fig3.savefig(_buf3, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-        st.pyplot(fig3, use_container_width=True)
         plt.close(fig3)
+        _buf3.seek(0)
+        st.image(_buf3, use_container_width=True)
 
         if _shap_is_real:
             sc1, sc2 = st.columns(2)
@@ -815,8 +818,9 @@ with st.spinner("Computing LIME explanation for Stage 1..."):
         plt.tight_layout()
         _buf_l1 = io.BytesIO()
         _fig_l1.savefig(_buf_l1, format="png", dpi=120, bbox_inches="tight", facecolor="white")
-        st.pyplot(_fig_l1, use_container_width=True)
         plt.close(_fig_l1)
+        _buf_l1.seek(0)
+        st.image(_buf_l1, use_container_width=True)
         st.caption("LIME describes local model behaviour — not clinical causation.")
     except ImportError:
         st.info("⚠️ LIME not installed. Add `lime` to requirements.txt to enable this section.")

@@ -677,8 +677,9 @@ with st.spinner("Computing SHAP explanation..."):
         _buf_s = io.BytesIO()
         fig_s.savefig(_buf_s, format="png", dpi=120, bbox_inches="tight",
                       facecolor="white")
-        st.pyplot(fig_s, use_container_width=True)
         plt.close(fig_s)
+        _buf_s.seek(0)
+        st.image(_buf_s, use_container_width=True)
 
     except Exception as e:
         st.info(f"SHAP explanation unavailable: {str(e)[:200]}")
@@ -761,8 +762,9 @@ with st.spinner("Computing LIME explanation..."):
         _buf_l = io.BytesIO()
         fig_l.savefig(_buf_l, format="png", dpi=120, bbox_inches="tight",
                       facecolor="white")
-        st.pyplot(fig_l, use_container_width=True)
         plt.close(fig_l)
+        _buf_l.seek(0)
+        st.image(_buf_l, use_container_width=True)
         st.caption("LIME describes local model behaviour — not clinical causation.")
 
     except ImportError:

@@ -375,15 +375,11 @@ with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
     ax.spines["right"].set_visible(False)
     ax.grid(True, axis="x", alpha=0.2)
     plt.tight_layout()
-    _buf_fi = io.BytesIO()
-    fig.savefig(_buf_fi, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-    _buf_fi.seek(0)
-    _b64_fi = base64.b64encode(_buf_fi.read()).decode()
-    st.markdown(
-        f'<img src="data:image/png;base64,{_b64_fi}" style="width:100%;display:block;"/>',
-        unsafe_allow_html=True,
-    )
+    _buf_fi = __import__('io').BytesIO()
+    fig.savefig(_buf_fi, format='png', dpi=100, bbox_inches='tight', facecolor='white')
     plt.close(fig)
+    _buf_fi.seek(0)
+    st.image(_buf_fi, use_container_width=True)
     st.caption(
         "ICULOS (ICU length of stay) is the most influential feature — consistent with clinical "
         "evidence that sepsis risk increases over ICU stay. Lactate, Temp, and Shock_Index "

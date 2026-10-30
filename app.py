@@ -266,8 +266,11 @@ ax.set_title("Organ Systems Affected in Sepsis", fontweight="bold", fontsize=9)
 ax.tick_params(labelsize=7.5); ax.grid(True, axis="x", alpha=0.2); ax.set_xlim(0,85)
 
 plt.tight_layout(pad=2.0)
-st.pyplot(fig, use_container_width=True)
+_buf_home = __import__('io').BytesIO()
+fig.savefig(_buf_home, format='png', dpi=100, bbox_inches='tight', facecolor='white')
 plt.close(fig)
+_buf_home.seek(0)
+st.image(_buf_home, use_container_width=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
