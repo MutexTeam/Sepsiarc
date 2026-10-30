@@ -7,15 +7,15 @@ Features: 65 patient-level aggregates (pre-label + early post-label windows)
 Threshold: from stage2_xgb_metadata.json (0.29)
 Access : Gated - requires Stage 1 ALERT or BORDERLINE in session_state.
 """
+import os, sys
+os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # ensure matplotlib cache is writable on Cloud
+import matplotlib
+matplotlib.use('Agg')  # must be before any other matplotlib/pyplot import
+import matplotlib.pyplot as plt
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib, json, os, sys, io, warnings, base64
-import os
-os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,7 +49,6 @@ _IMPUTER_PATH = os.path.join(_root, "models", "stage2_xgb_imputer.joblib")
 _META_PATH    = os.path.join(_root, "models", "stage2_xgb_metadata.json")
 _SUMM_PATH    = os.path.join(_root, "models", "stage2_xgb_summary.json")
 
-
 @st.cache_resource(show_spinner="Loading Stage 2 model...")
 def load_stage2():
     model   = joblib.load(_MODEL_PATH)
@@ -64,7 +63,6 @@ def load_stage2():
     features  = meta["features"]
     threshold = float(meta["decision_threshold"])
     return model, imputer, features, threshold, meta, summary
-
 
 try:
     s2_model, s2_imputer, S2_FEATURES, S2_THRESH, S2_META, S2_SUMMARY = load_stage2()
@@ -190,7 +188,6 @@ else:
         render_footer()
         st.stop()
 
-
 # ===== PARSING =================================================================
 def parse_patient_file(uploaded_file) -> pd.DataFrame:
     content    = uploaded_file.read().decode("utf-8", errors="replace")
@@ -202,7 +199,6 @@ def parse_patient_file(uploaded_file) -> pd.DataFrame:
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
-
 
 if uploaded is not None:
     # Explicit upload or override -- parse fresh
@@ -231,10 +227,8 @@ if n_total_rows == 0:
 with st.expander(f"📄 Raw file preview ({n_total_rows} rows, {len(raw_df.columns)} columns)", expanded=False):
     st.dataframe(raw_df.head(10), use_container_width=True)
 
-
 # ===== FEATURE ENGINEERING =====================================================
 _VITALS = ["HR", "SBP", "MAP", "Resp", "O2Sat", "Temp"]
-
 
 def _linslope(values: np.ndarray) -> float:
     """Linear regression slope; returns 0.0 if < 2 valid points."""
@@ -243,7 +237,6 @@ def _linslope(values: np.ndarray) -> float:
         return 0.0
     x = np.arange(len(vals), dtype=float)
     return float(np.polyfit(x, vals, 1)[0])
-
 
 def _window_stats(series: pd.Series, prefix: str) -> dict:
     """Aggregate stats for one vital in one time window."""
@@ -260,7 +253,6 @@ def _window_stats(series: pd.Series, prefix: str) -> dict:
         f"{prefix}_Mean":               float(np.nanmean(vals))          if n > 0 else np.nan,
         f"{prefix}_Slope":              _linslope(series.values),
     }
-
 
 def engineer_stage2_features(df: pd.DataFrame, ref_hour: int) -> dict:
     """
@@ -311,12 +303,10 @@ def engineer_stage2_features(df: pd.DataFrame, ref_hour: int) -> dict:
 
     return feats
 
-
 def build_s2_input(feat_dict: dict) -> pd.DataFrame:
     """Align feature dict to the exact 65-feature order; NaN for missing."""
     row = {f: feat_dict.get(f, np.nan) for f in S2_FEATURES}
     return pd.DataFrame([row], columns=S2_FEATURES)
-
 
 # Reference hour determination -- prefer first_alert_h (first Stage 1 alert hour),
 # fall back to peak_hour, then data median.
@@ -392,7 +382,6 @@ with st.spinner("Running Stage 2 risk stratification..."):
         st.exception(e)
         render_footer()
         st.stop()
-
 
 # ===== SECTION 1+2: RISK RESULT + PATIENT INFO ================================
 st.markdown("---")
@@ -497,7 +486,6 @@ with info_col:
             "pre-label history or early post-label observations are unavailable."
         )
 
-
 # ===== SECTION 3: PHYSIOLOGICAL TREND SUMMARY =================================
 st.markdown("---")
 st.markdown("### 🩺 Physiological Trend Summary")
@@ -516,12 +504,10 @@ vital_labels = {
     "Temp":  "Temperature (C)",
 }
 
-
 def _smean(df_w: pd.DataFrame, col: str) -> str:
     if col not in df_w.columns or df_w[col].dropna().empty:
         return "—"
     return f"{df_w[col].mean():.1f}"
-
 
 def _trend(pre: pd.DataFrame, early: pd.DataFrame, col: str) -> str:
     if col not in pre.columns or col not in early.columns:
@@ -534,7 +520,6 @@ def _trend(pre: pd.DataFrame, early: pd.DataFrame, col: str) -> str:
     elif d < -1.0: return "↓ Decreasing"
     else:          return "→ Stable"
 
-
 trend_data = [
     {
         "Parameter":             lbl,
@@ -545,7 +530,6 @@ trend_data = [
     for v, lbl in vital_labels.items()
 ]
 st.dataframe(pd.DataFrame(trend_data), use_container_width=True, hide_index=True)
-
 
 # ===== SECTION 4: PROBABILITY + DECISION ======================================
 st.markdown("---")
@@ -584,7 +568,6 @@ with pc2:
             f"Since **{prob_higher_risk*100:.2f}% < {S2_THRESH*100:.2f}%**, "
             f"the Stage 2 model classifies this patient as **Lower Risk**."
         )
-
 
 # ===== SECTION 5: SHAP =========================================================
 st.markdown("---")
@@ -686,7 +669,6 @@ with st.spinner("Computing SHAP explanation..."):
     except Exception as e:
         st.info(f"SHAP explanation unavailable: {str(e)[:200]}")
 
-
 # ===== SECTION 6: LIME =========================================================
 st.markdown("---")
 st.markdown("### 🔬 Patient-Specific Explanation — LIME")
@@ -777,7 +759,6 @@ with st.spinner("Computing LIME explanation..."):
     except Exception as e:
         st.info(f"LIME explanation unavailable: {str(e)[:150]}")
 
-
 # ===== SECTION 7: DATA AVAILABILITY ===========================================
 st.markdown("---")
 st.markdown("### [Data] Input / Data Availability Status")
@@ -791,7 +772,6 @@ avail_data = [
 ]
 st.dataframe(pd.DataFrame(avail_data, columns=["Item","Value"]),
              use_container_width=True, hide_index=True)
-
 
 # ===== SECTION 8: INTERPRETATION ===============================================
 st.markdown("---")
@@ -820,7 +800,6 @@ st.markdown("""
 - Assess oxygenation trend (O2Sat, FiO2 requirement)
 - Evaluate SIRS persistence (fever, tachycardia, tachypnoea)
 """)
-
 
 # ===== SECTION 9: DISCLAIMER ===================================================
 st.markdown("---")

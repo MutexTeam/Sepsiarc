@@ -5,6 +5,11 @@ Updated to reflect:
   Stage 2: XGBoost post-sepsis risk model (65 patient-level aggregate features, threshold 0.29)
 Input: PSV/CSV file upload for both stages
 """
+import os, sys
+os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # ensure matplotlib cache is writable on Cloud
+import matplotlib
+matplotlib.use('Agg')  # must be before any other matplotlib/pyplot import
+import matplotlib.pyplot as plt
 import streamlit as st
 import json, joblib, os, sys, io, base64
 import pandas as pd
@@ -359,11 +364,6 @@ with st.expander("🔧 Stage 1 — Feature Engineering Breakdown (135 features)"
 
 # ── Stage 1 Feature Importance ─────────────────────────────────────────────
 with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
-    import os
-    os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
 
     top = s1_feat_imp.head(20).sort_values("Importance")
     fig, ax = plt.subplots(figsize=(9, 5), facecolor="white")

@@ -4,11 +4,11 @@ Sections: Navbar · Hero · Sepsis Stats · About Project ·
           Sepsis Overview · Epidemiology · Access Modules · Footer
 """
 import os, sys
-import streamlit as st
-os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
+os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # ensure matplotlib cache is writable on Cloud
 import matplotlib
-matplotlib.use("Agg")
+matplotlib.use('Agg')  # must be before any other matplotlib/pyplot import
 import matplotlib.pyplot as plt
+import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.ui_components import (

@@ -9,11 +9,12 @@ Input: PSV / CSV file upload (hourly patient timeline)
 import os, io, json, warnings, base64
 import numpy as np
 import pandas as pd
-import streamlit as st
-os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
+import os, sys
+os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # ensure matplotlib cache is writable on Cloud
 import matplotlib
-matplotlib.use("Agg")
+matplotlib.use('Agg')  # must be before any other matplotlib/pyplot import
 import matplotlib.pyplot as plt
+import streamlit as st
 import xgboost as xgb
 
 warnings.filterwarnings("ignore")
@@ -91,7 +92,6 @@ _DROP_RAW = [
     # columns not in the 135-feature contract
     "Maxglucose", "Minglucose",
 ]
-
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -195,7 +195,6 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
 def build_model_input(df_engineered: pd.DataFrame) -> pd.DataFrame:
     """
     Select and order exactly the 135 model features.
@@ -217,7 +216,6 @@ def build_model_input(df_engineered: pd.DataFrame) -> pd.DataFrame:
     # Fallback: any remaining NaN → 0
     X = X.fillna(0)
     return X
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FILE PARSING
@@ -245,7 +243,6 @@ def parse_patient_file(uploaded_file) -> pd.DataFrame:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     return df
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # UI — Info banner
@@ -1018,5 +1015,4 @@ except Exception as _pdf_err:
                "Ensure `fpdf2` is listed in requirements.txt.")
 
 render_footer()
-
 
