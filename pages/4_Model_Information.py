@@ -359,6 +359,7 @@ with st.expander("🔧 Stage 1 — Feature Engineering Breakdown (135 features)"
 
 # ── Stage 1 Feature Importance ─────────────────────────────────────────────
 with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
+    import os
     os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
     import matplotlib
     matplotlib.use("Agg")

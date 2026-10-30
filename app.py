@@ -3,12 +3,12 @@ app.py  --  SepsiArc Home Dashboard
 Sections: Navbar · Hero · Sepsis Stats · About Project ·
           Sepsis Overview · Epidemiology · Access Modules · Footer
 """
+import os, sys
 import streamlit as st
 os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.ui_components import (
