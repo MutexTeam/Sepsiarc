@@ -589,12 +589,7 @@ ax.spines["right"].set_visible(False)
 plt.tight_layout()
 _buf1 = io.BytesIO()
 fig.savefig(_buf1, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-_buf1.seek(0)
-_b64_1 = base64.b64encode(_buf1.read()).decode()
-st.markdown(
-    f'<img src="data:image/png;base64,{_b64_1}" style="width:100%;display:block;"/>',
-    unsafe_allow_html=True,
-)
+st.pyplot(fig, use_container_width=True)
 plt.close(fig)
 
 # True labels overlay (if available)
@@ -615,12 +610,7 @@ if "SepsisLabel" in raw_df.columns:
         plt.tight_layout()
         _buf2 = io.BytesIO()
         fig2.savefig(_buf2, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-        _buf2.seek(0)
-        _b64_2 = base64.b64encode(_buf2.read()).decode()
-        st.markdown(
-            f'<img src="data:image/png;base64,{_b64_2}" style="width:100%;display:block;"/>',
-            unsafe_allow_html=True,
-        )
+        st.pyplot(fig2, use_container_width=True)
         plt.close(fig2)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -679,7 +669,9 @@ with st.spinner("Computing SHAP explanation…"):
         # Fallback 2: model built-in feature importances (always available)
         # s1_model is a Booster (not XGBClassifier) — use get_score(), NOT feature_importances_
         _shap_label = "SHAP Value"
+        _shap_is_real = True
         if sv is None:
+            _shap_is_real = False
             try:
                 # get_score returns dict {feature_name: score}; align to S1_FEATURES order
                 scores = s1_model.get_score(importance_type="gain")
@@ -698,21 +690,28 @@ with st.spinner("Computing SHAP explanation…"):
                 "feature importances instead — these rank features by overall predictive gain, "
                 "not by direction of influence for this specific patient."
             )
+        st.session_state["s1_shap_is_real"] = _shap_is_real
+        st.session_state["s1_shap_label"]   = _shap_label
         shap_series = pd.Series(np.array(sv, dtype=float), index=S1_FEATURES)
         top10       = shap_series.abs().nlargest(10).index
         tv          = shap_series[top10]
 
         fig3, ax3 = plt.subplots(figsize=(8, 4), facecolor="white")
-        colors3   = [RED if v > 0 else GREEN for v in tv.values[::-1]]
+        if _shap_is_real:
+            colors3 = [RED if v > 0 else GREEN for v in tv.values[::-1]]
+            x_label3 = f"{_shap_label}  (positive = increases sepsis risk)"
+            title3   = f"Top 10 Feature Contributions — Hour {peak_hour} (Prob {peak_prob*100:.1f}%)"
+        else:
+            colors3 = [TEAL for _ in tv]
+            x_label3 = "XGBoost Gain Importance (Global Model Relative Weight)"
+            title3   = "Global Model Feature Importance — SHAP Unavailable"
+
         ax3.barh(range(len(tv)), tv.values[::-1], color=colors3, alpha=0.85,
                  edgecolor="white", height=0.65)
         ax3.set_yticks(range(len(tv)))
         ax3.set_yticklabels(tv.index[::-1], fontsize=9)
-        ax3.set_xlabel(f"{_shap_label}  (positive = increases sepsis risk)", fontsize=9)
-        ax3.set_title(
-            f"Top 10 Feature Contributions — Hour {peak_hour} (Prob {peak_prob*100:.1f}%)",
-            fontweight="bold", fontsize=10, color=NAVY,
-        )
+        ax3.set_xlabel(x_label3, fontsize=9)
+        ax3.set_title(title3, fontweight="bold", fontsize=10, color=NAVY)
         ax3.axvline(0, color="#334155", lw=0.8)
         ax3.grid(True, axis="x", alpha=0.25)
         ax3.set_facecolor("#FAFAFA")
@@ -721,19 +720,17 @@ with st.spinner("Computing SHAP explanation…"):
         plt.tight_layout()
         _buf3 = io.BytesIO()
         fig3.savefig(_buf3, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-        _buf3.seek(0)
-        _b64_3 = base64.b64encode(_buf3.read()).decode()
-        st.markdown(
-            f'<img src="data:image/png;base64,{_b64_3}" style="width:100%;display:block;"/>',
-            unsafe_allow_html=True,
-        )
+        st.pyplot(fig3, use_container_width=True)
         plt.close(fig3)
 
-        sc1, sc2 = st.columns(2)
-        sc1.markdown(f"<span style='color:{RED};font-size:0.8rem;'>🔴 Red — increases sepsis risk</span>",
-                     unsafe_allow_html=True)
-        sc2.markdown(f"<span style='color:{GREEN};font-size:0.8rem;'>🟢 Green — decreases sepsis risk</span>",
-                     unsafe_allow_html=True)
+        if _shap_is_real:
+            sc1, sc2 = st.columns(2)
+            sc1.markdown(f"<span style='color:{RED};font-size:0.8rem;'>🔴 Red — increases sepsis risk</span>",
+                         unsafe_allow_html=True)
+            sc2.markdown(f"<span style='color:{GREEN};font-size:0.8rem;'>🟢 Green — decreases sepsis risk</span>",
+                         unsafe_allow_html=True)
+        else:
+            st.caption("ℹ️ Gain importance measures relative predictive contribution across trees. Values are non-negative and do not indicate direction of influence.")
     except Exception as e:
         st.info(f"SHAP explanation unavailable: {str(e)[:120]}")
 
@@ -818,12 +815,7 @@ with st.spinner("Computing LIME explanation for Stage 1..."):
         plt.tight_layout()
         _buf_l1 = io.BytesIO()
         _fig_l1.savefig(_buf_l1, format="png", dpi=120, bbox_inches="tight", facecolor="white")
-        _buf_l1.seek(0)
-        _b64_l1 = base64.b64encode(_buf_l1.read()).decode()
-        st.markdown(
-            f'<img src="data:image/png;base64,{_b64_l1}" style="width:100%;display:block;"/>',
-            unsafe_allow_html=True,
-        )
+        st.pyplot(_fig_l1, use_container_width=True)
         plt.close(_fig_l1)
         st.caption("LIME describes local model behaviour — not clinical causation.")
     except ImportError:
@@ -838,8 +830,12 @@ st.markdown("---")
 st.markdown("### 🔄 Stage 2 Eligibility")
 
 _s2_eligible = patient_high or st.session_state["s1_borderline"]
-_s2_pre_hrs  = int(first_alert_h) - int(hours[0]) if first_alert_h else 0
-_s2_post_hrs = int(hours[-1]) - int(first_alert_h) if first_alert_h else 0
+_s2_pre_hrs  = int((hours < first_alert_h).sum()) if first_alert_h else 0
+_s2_post_hrs = int((hours >= first_alert_h).sum()) if first_alert_h else 0
+st.session_state["s1_obs_start"] = _obs_start
+st.session_state["s1_obs_end"]   = _obs_end
+st.session_state["s1_pre_hrs"]   = _s2_pre_hrs
+st.session_state["s1_post_hrs"]  = _s2_post_hrs
 
 if _s2_eligible:
     st.markdown(f"""
@@ -911,21 +907,16 @@ try:
                  if _hosp != "N/A" else "N/A")
     _age_str  = (f"{float(_age):.0f} yrs" if _age != "N/A" else "N/A")
 
-    # -- Build hourly_rows from result_df (match keys expected by pdf_report.py)
-    _hourly_rows_pdf = None
-    try:
-        if result_df is not None and not result_df.empty:
-            _hourly_rows_pdf = [
-                {
-                    'Hour':     int(r.get('Hour (ICULOS)', r.get('Hour', i+1))),
-                    'Prob':     float(r.get('Sepsis Prob (%)', r.get('Prob', 0.0))),
-                    'Category': str(r.get('Prediction', r.get('Category', ''))),
-                    'Alert':    float(r.get('Sepsis Prob (%)', r.get('Prob', 0.0))) >= (S1_THRESH * 100),
-                }
-                for i, r in enumerate(result_df.to_dict('records'))
-            ]
-    except Exception:
-        _hourly_rows_pdf = None
+    # -- Build clean hourly_rows for all processed observations
+    _hourly_rows_pdf = [
+        {
+            'Hour':     int(h),
+            'Prob':     float(p * 100),
+            'Category': "SEPSIS ALERT" if p >= S1_THRESH else ("BORDERLINE" if p >= 0.080 else "LOW RISK"),
+            'Alert':    bool(p >= S1_THRESH),
+        }
+        for h, p in zip(hours, probs)
+    ]
 
     # -- Retrieve chart PNG bytes (_buf1 already seeked when displayed)
     _chart_png = None
@@ -942,6 +933,24 @@ try:
         _shap_png = _buf3.read()
     except Exception:
         _shap_png = None
+
+    # -- Retrieve LIME PNG bytes (_buf_l1 created inside LIME block)
+    _lime_png1 = None
+    try:
+        _buf_l1.seek(0)
+        _lime_png1 = _buf_l1.read()
+    except Exception:
+        _lime_png1 = None
+
+    # -- Retrieve LIME text rules from session
+    _lime_text1 = None
+    try:
+        if '_lime_list1' in locals() and _lime_list1:
+            _lime_text1 = "\n".join([f"{f}: {v:+.4f}" for f, v in _lime_list1])
+    except Exception:
+        _lime_text1 = None
+
+    _shap_lbl_to_pass = _shap_label if ('_shap_is_real' in locals() and not _shap_is_real) else None
 
     try:
         _pdf_bytes = _build_s1_pdf(
@@ -965,10 +974,12 @@ try:
             hourly_rows     = _hourly_rows_pdf,
             chart_png_bytes = _chart_png,
             shap_png_bytes  = _shap_png,
-            lime_text       = None,
+            lime_png_bytes  = _lime_png1,
+            lime_text       = _lime_text1,
+            shap_label      = _shap_lbl_to_pass,
         )
     except TypeError:
-        # Fallback: old pdf_report signature (no new optional params)
+        # Fallback: old pdf_report signature
         _pdf_bytes = _build_s1_pdf(
             patient_id    = _pid,
             age           = _age_str,

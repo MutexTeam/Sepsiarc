@@ -7,7 +7,7 @@ import streamlit as st
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import os, sys, io, base64
+import os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.ui_components import (
@@ -266,16 +266,8 @@ ax.set_title("Organ Systems Affected in Sepsis", fontweight="bold", fontsize=9)
 ax.tick_params(labelsize=7.5); ax.grid(True, axis="x", alpha=0.2); ax.set_xlim(0,85)
 
 plt.tight_layout(pad=2.0)
-_epi_buf = io.BytesIO()
-fig.savefig(_epi_buf, format="png", dpi=120, bbox_inches="tight", facecolor="#F0F9FF")
-_epi_buf.seek(0)
-_epi_b64 = base64.b64encode(_epi_buf.read()).decode()
+st.pyplot(fig, use_container_width=True)
 plt.close(fig)
-st.markdown(
-    f'<img src="data:image/png;base64,{_epi_b64}" '
-    f'style="width:100%;border-radius:10px;display:block;"/>',
-    unsafe_allow_html=True,
-)
 
 st.markdown("<br>", unsafe_allow_html=True)
 

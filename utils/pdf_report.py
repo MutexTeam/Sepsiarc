@@ -1,6 +1,6 @@
 """
 utils/pdf_report.py
-SepsiArc -- Professional PDF Report Generator (v2)
+SepsiArc -- Professional PDF Report Generator (v2.1)
 Uses fpdf2 (pure Python, no system dependencies, works on Streamlit Cloud).
 
 Sections in Stage 1 PDF:
@@ -9,7 +9,7 @@ Sections in Stage 1 PDF:
   3. Hourly Prediction Table
   4. Probability Timeline Chart
   5. Physiological Trend Summary
-  6. SHAP Explanation
+  6. SHAP / Global Feature Importance Explanation
   7. LIME Explanation
   8. Stage 2 Eligibility
   9. Clinical Interpretation & Disclaimer
@@ -18,7 +18,7 @@ Sections in Stage 2 PDF:
   1. Stage 1 Context & Report Header
   2. Patient / Input Information
   3. Eligibility & Reference Hour
-  4. Stage 2 Risk Result
+  4. Stage 2 Risk Stratification Result
   5. Physiological Trend Summary
   6. SHAP Explanation
   7. LIME Explanation
@@ -28,6 +28,7 @@ Sections in Stage 2 PDF:
 from __future__ import annotations
 import io, datetime
 from fpdf import FPDF
+from PIL import Image
 
 # ── Brand colours (R, G, B) ──────────────────────────────────────────────────
 NAVY  = (13,  33,  55)
@@ -49,13 +50,17 @@ def _safe(text: str) -> str:
         text = str(text)
     # Strip variation selectors first (fe0f = emoji presentation)
     text = text.replace("\ufe0f", "")
+    # Status symbols used in Prediction column
+    text = text.replace("\u26a0", "[!]")   # warning sign
+    text = text.replace("\u2705", "[OK]")  # check mark
+    text = text.replace("\u274c", "[X]")   # cross mark
     # Trend arrow emoji (composite sequences first)
     text = text.replace("\u2197", "Increasing")   # ↗
     text = text.replace("\u2198", "Decreasing")   # ↘
     text = text.replace("\u2194", "Stable")        # ↔
     text = text.replace("\u2191", "Increasing")   # ↑
     text = text.replace("\u2193", "Decreasing")   # ↓
-    text = text.replace("\u2192", "Stable")        # →  (was "->", now "Stable" for trends)
+    text = text.replace("\u2192", "Stable")        # →
     # Typography
     text = text.replace("\u2014", "--")            # — em dash
     text = text.replace("\u2013", "-")             # – en dash
@@ -70,8 +75,8 @@ def _safe(text: str) -> str:
     text = text.replace("\u2265", ">=")            # ≥
     text = text.replace("\u2264", "<=")            # ≤
     text = text.replace("\u2260", "!=")            # ≠
-    text = text.replace("\u00b0", " deg")          # °  degree
-    text = text.replace("\u03bc", "u")             # μ  micro
+    text = text.replace("\u00b0", " deg")          # ° degree
+    text = text.replace("\u03bc", "u")             # μ micro
     # Accented Latin
     text = text.replace("\u00e9", "e")
     text = text.replace("\u00e0", "a")
@@ -80,7 +85,7 @@ def _safe(text: str) -> str:
     text = text.replace("\u00f6", "o")
     text = text.replace("\u00df", "ss")
     text = text.replace("\u2026", "...")           # …
-    # Final fallback: drop any remaining non-Latin-1 chars
+    # Final fallback: replace any remaining non-Latin-1 chars
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
@@ -92,8 +97,8 @@ class SepsiArcPDF(FPDF):
         self.report_title = _safe(report_title)
         self.patient_id   = _safe(patient_id)
         self.generated    = _safe(generated)
-        self.set_auto_page_break(auto=True, margin=22)
-        self.set_margins(18, 18, 18)
+        self.set_auto_page_break(auto=True, margin=20)
+        self.set_margins(18, 20, 18)
 
     # ── Auto-sanitize every write ──────────────────────────────────────────
     def cell(self, w=0, h=0, text="", border=0, new_x="RIGHT", new_y="TOP",
@@ -107,7 +112,7 @@ class SepsiArcPDF(FPDF):
                    markdown=False, output=None, dry_run=False, **kwargs):
         return super().multi_cell(w=w, h=h, text=_safe(str(text)), border=border,
                                   align=align, fill=fill, link=link,
-                                  markdown=markdown, **kwargs)
+                                  markdown=markdown, split_only=split_only, **kwargs)
 
     # ── Branding header (auto-called on each page) ─────────────────────────
     def header(self):
@@ -125,7 +130,8 @@ class SepsiArcPDF(FPDF):
         self.set_font("Helvetica", "", 7)
         self.set_xy(100, 5)
         self.cell(102, 4, "From Sepsis Detection to Recovery Risk.", align="R")
-        self.ln(2)
+        # Ensure the cursor begins strictly below the 14mm header with padding
+        self.set_y(20)
 
     # ── Page footer ────────────────────────────────────────────────────────
     def footer(self):
@@ -142,7 +148,7 @@ class SepsiArcPDF(FPDF):
 
     # ── Report title block ─────────────────────────────────────────────────
     def title_block(self):
-        self.ln(6)
+        self.ln(3)
         self.set_font("Helvetica", "B", 15)
         self.set_text_color(*NAVY)
         self.cell(0, 9, self.report_title, align="C", new_x="LMARGIN", new_y="NEXT")
@@ -158,10 +164,11 @@ class SepsiArcPDF(FPDF):
         self.ln(13)
 
     # ── Coloured section heading ───────────────────────────────────────────
-    def section_heading(self, title: str, color: tuple = NAVY):
-        # Ensure at least 18mm before adding heading (avoid orphan headings)
-        if self.get_y() > (self.h - self.b_margin - 18):
+    def section_heading(self, title: str, color: tuple = NAVY, min_space: float = 28):
+        # Ensure at least min_space before adding heading (avoid orphan headings)
+        if self.get_y() + min_space > (self.h - self.b_margin):
             self.add_page()
+            self.set_y(20)
         self.set_fill_color(*color)
         self.rect(18, self.get_y(), 3, 7, style="F")
         self.set_xy(23, self.get_y())
@@ -170,32 +177,55 @@ class SepsiArcPDF(FPDF):
         self.cell(0, 7, title, new_x="LMARGIN", new_y="NEXT")
         self.ln(1)
 
-    # ── Key-value pair row ─────────────────────────────────────────────────
+    # ── Key-value pair row with multiline auto-wrap ────────────────────────
     def key_value_row(self, label: str, value: str,
-                      fill: bool = False, val_color: tuple = BLACK):
+                      fill: bool = False, val_color: tuple = BLACK,
+                      min_h: float = 6.5):
+        safe_lbl = _safe(label).upper()
+        safe_val = _safe(str(value))
+        self.set_font("Helvetica", "", 8.5)
+        parts = safe_val.split("\n")
+        n_lines = sum(max(1, int(self.get_string_width(p) / 98) + 1) for p in parts)
+        row_h = max(min_h, n_lines * 4.5 + 2.0)
+
+        # Check page break BEFORE drawing background rect
+        if self.get_y() + row_h > (self.h - self.b_margin):
+            self.add_page()
+            self.set_y(20)
+
         y = self.get_y()
         if fill:
             self.set_fill_color(*LIGHT)
-            self.rect(18, y, 174, 6.5, style="F")
+            self.rect(18, y, 174, row_h, style="F")
+
         self.set_font("Helvetica", "B", 8.5)
         self.set_text_color(*GREY)
-        self.set_xy(20, y + 0.5)
-        self.cell(70, 5.5, _safe(label).upper(), align="L")
+        self.set_xy(20, y + 1.0)
+        self.cell(68, 5.0, safe_lbl, align="L")
+
         self.set_font("Helvetica", "", 8.5)
         self.set_text_color(*val_color)
-        self.cell(102, 5.5, _safe(str(value)), align="L")
-        self.ln(6.5)
+        self.set_xy(90, y + 1.0)
+        if n_lines > 1:
+            self.multi_cell(100, 4.5, safe_val, align="L")
+        else:
+            self.cell(100, 5.0, safe_val, align="L")
+        self.set_y(y + row_h)
 
     # ── Result badge (coloured border box) ────────────────────────────────
     def result_badge(self, label: str, probability: str,
                      threshold: str, color: tuple = RED):
+        badge_h = 28
+        if self.get_y() + badge_h + 10 > (self.h - self.b_margin):
+            self.add_page()
+            self.set_y(20)
         y = self.get_y()
         self.set_draw_color(*color)
         self.set_fill_color(*WHITE)
         self.set_line_width(0.8)
-        self.rect(18, y, 174, 28, style="DF")
+        self.rect(18, y, 174, badge_h, style="DF")
         self.set_fill_color(*color)
-        self.rect(18, y, 5, 28, style="F")
+        self.rect(18, y, 5, badge_h, style="F")
         self.set_font("Helvetica", "B", 18)
         self.set_text_color(*color)
         self.set_xy(28, y + 4)
@@ -207,7 +237,7 @@ class SepsiArcPDF(FPDF):
         self.set_text_color(*GREY)
         self.set_xy(28, y + 21)
         self.cell(80, 5, _safe(f"Decision Threshold: {threshold}"), align="L")
-        self.ln(32)
+        self.ln(badge_h + 4)
 
     # ── Table header row ───────────────────────────────────────────────────
     def table_header(self, cols: list, color: tuple = TEAL):
@@ -220,7 +250,11 @@ class SepsiArcPDF(FPDF):
 
     # ── Table data row ─────────────────────────────────────────────────────
     def table_row(self, values: list, widths: list,
-                  fill: bool = False, aligns: list = None):
+                  fill: bool = False, aligns: list = None,
+                  row_h: float = 6.0):
+        if self.get_y() + row_h > (self.h - self.b_margin):
+            self.add_page()
+            self.set_y(20)
         if fill:
             self.set_fill_color(*LIGHT)
         else:
@@ -230,7 +264,7 @@ class SepsiArcPDF(FPDF):
         if aligns is None:
             aligns = ["L"] * len(values)
         for val, w, al in zip(values, widths, aligns):
-            self.cell(w, 6.0, _safe(str(val)), border=0, fill=True, align=al)
+            self.cell(w, row_h, _safe(str(val)), border=0, fill=True, align=al)
         self.ln()
 
     # ── Horizontal divider ─────────────────────────────────────────────────
@@ -247,14 +281,16 @@ class SepsiArcPDF(FPDF):
         if not png_bytes:
             return
         try:
-            img_io = io.BytesIO(png_bytes)
-            # Check space — estimate image height at A4 width ~97mm for 16:4 ratio
-            est_h = max_w * 0.28
-            if self.get_y() + est_h > (self.h - self.b_margin - 5):
+            im = Image.open(io.BytesIO(png_bytes))
+            w_px, h_px = im.size
+            est_h = max_w * (h_px / w_px)
+            if self.get_y() + est_h + 8 > (self.h - self.b_margin):
                 self.add_page()
+                self.set_y(20)
+            img_io = io.BytesIO(png_bytes)
             self.image(img_io, x=18, w=max_w)
             if caption:
-                self.set_font("Helvetica", "I", 7)
+                self.set_font("Helvetica", "I", 7.5)
                 self.set_text_color(*GREY)
                 self.multi_cell(174, 4, caption, align="C")
             self.ln(3)
@@ -265,23 +301,10 @@ class SepsiArcPDF(FPDF):
                       new_x="LMARGIN", new_y="NEXT")
             self.ln(2)
 
-    # ── Info / note box ────────────────────────────────────────────────────
-    def note_box(self, text: str, color: tuple = TEAL):
-        y = self.get_y()
-        self.set_font("Helvetica", "I", 8)
-        self.set_text_color(*color)
-        self.set_fill_color(*(int(c * 0.12 + 243) for c in color))
-        self.multi_cell(174, 5, text, fill=False)
-        self.ln(2)
-
     # ── Disclaimer box (SINGLE, at report end) ─────────────────────────────
     def disclaimer_box(self):
         """Render disclaimer box. Ensures space; forces new page if needed."""
-        self.ln(4)
-        if self.get_y() > (self.h - self.b_margin - 40):
-            self.add_page()
-            self.ln(3)
-        y = self.get_y()
+        self.ln(3)
         msg = (
             "RESEARCH AND CLINICAL DECISION-SUPPORT USE ONLY. "
             "This report contains machine-learning-based predictions. "
@@ -294,9 +317,13 @@ class SepsiArcPDF(FPDF):
             "SepsiArc was developed and evaluated using the PhysioNet/CinC Challenge 2019 dataset."
         )
         self.set_font("Helvetica", "", 7.8)
-        lines = self.multi_cell(168, 4.5, msg, split_only=True)
-        n_lines = len(lines) if lines else 5
-        box_h = 11 + n_lines * 4.5 + 5
+        w = self.get_string_width(msg)
+        n_lines = max(5, int(w / 162) + 1)
+        box_h = 10 + n_lines * 4.5 + 4
+        if self.get_y() + box_h > (self.h - self.b_margin):
+            self.add_page()
+            self.set_y(20)
+        y = self.get_y()
         self.set_fill_color(*AMBER_BG)
         self.set_draw_color(*AMBER_BD)
         self.set_line_width(0.4)
@@ -305,15 +332,15 @@ class SepsiArcPDF(FPDF):
         self.set_font("Helvetica", "B", 8.5)
         self.set_text_color(146, 64, 14)
         self.cell(0, 5, "DISCLAIMER", new_x="LMARGIN", new_y="NEXT")
-        self.set_xy(21, y + 9)
+        self.set_xy(21, y + 8)
         self.set_font("Helvetica", "", 7.8)
         self.set_text_color(146, 64, 14)
         self.multi_cell(168, 4.5, msg)
-        self.ln(3)
+        self.set_y(y + box_h + 3)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# PUBLIC API
+# STAGE 1 PDF REPORT
 # ═════════════════════════════════════════════════════════════════════════════
 
 def build_stage1_pdf(
@@ -323,13 +350,14 @@ def build_stage1_pdf(
     peak_hour: int, first_alert_h,
     res_label: str, trend_rows: list,
     s2_eligible: bool, s2_pre_hrs: int, s2_post_hrs: int,
-    # New optional parameters — all have safe defaults
+    # Optional parameters
     hourly_rows: list = None,
     chart_png_bytes: bytes = None,
     shap_png_bytes: bytes = None,
     lime_png_bytes: bytes = None,
     lime_text: str = None,
     borderline_thresh: float = 0.080,
+    shap_label: str = None,
 ) -> bytes:
     """Build Stage 1 Sepsis Detection PDF report."""
     generated  = datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
@@ -342,8 +370,8 @@ def build_stage1_pdf(
     pdf.add_page()
     pdf.title_block()
 
-    # ── Section 1: Patient Information ──────────────────────────────────────
-    pdf.section_heading("1.  Patient Information", TEAL)
+    # ── Section 1: Patient Information & Data Quality ───────────────────────
+    pdf.section_heading("1.  Patient Information & Data Quality", TEAL)
     rows1 = [
         ("Patient / File ID",      patient_id),
         ("Age",                    age),
@@ -351,9 +379,10 @@ def build_stage1_pdf(
         ("Total ICU Observations", f"{n_rows} hourly rows"),
         ("Observation Period",     f"Hour {obs_start} to Hour {obs_end}"),
         ("Hospital Admission",     hosp_adm),
-        ("Input Format",           "PSV / CSV (hourly ICU timeline)"),
-        ("Preprocessing",          "Feature engineering: 135 clinical features including rolling stats, "
-                                   "lags, missingness indicators, and recency flags applied."),
+        ("Input Format",           "PSV / CSV (hourly ICU time-series)"),
+        ("Preprocessing",          "Feature engineering: 135 clinical features computed per hour, "
+                                   "including rolling window aggregates (mean, min, max, std over 3h, 6h, 12h), "
+                                   "lagged vital signs, missingness flags, and time-since-measurement indicators."),
     ]
     for i, (k, v) in enumerate(rows1):
         pdf.key_value_row(k, v, fill=(i % 2 == 0))
@@ -385,58 +414,80 @@ def build_stage1_pdf(
     pdf.ln(3)
 
     # ── Section 3: Hourly Prediction Table ──────────────────────────────────
-    pdf.section_heading("3.  Hourly Prediction Table", TEAL)
+    pdf.section_heading("3.  Hourly Prediction Table", TEAL, min_space=30)
     if hourly_rows:
-        MAX_ROWS = 60
-        display_rows = hourly_rows[:MAX_ROWS]
-        truncated = len(hourly_rows) > MAX_ROWS
+        display_rows = hourly_rows
         pdf.set_font("Helvetica", "I", 7.5)
         pdf.set_text_color(*GREY)
         caption_txt = (
-            f"Showing {len(display_rows)} of {len(hourly_rows)} processed hours. "
+            f"Showing all {len(display_rows)} processed hourly observations. "
             f"Alert = hour crossed Sepsis Alert threshold ({s1_thresh:.3f})."
         )
-        if truncated:
-            caption_txt += f"  First {MAX_ROWS} hours shown. Download the CSV for the full table."
         pdf.cell(0, 5, caption_txt, new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         cols = [
-            ("Hour (ICULOS)", 40), ("Probability", 38),
-            ("Category",      58), ("Alert",        38),
+            ("Hour (ICULOS)", 36), ("Probability", 36),
+            ("Category",      64), ("Alert",        38),
         ]
         widths = [c[1] for c in cols]
         pdf.table_header(cols, color=TEAL)
+        ROW_H = 5.8
         for i, row in enumerate(display_rows):
-            hr   = str(row.get("Hour",     row.get("hour",     "?")))
-            prob = row.get("Prob",     row.get("prob",     row.get("Sepsis Prob (%)", 0.0)))
+            # Page-break guard: check space before drawing row
+            if pdf.get_y() + ROW_H > (pdf.h - pdf.b_margin):
+                pdf.add_page()
+                pdf.set_y(20)
+                pdf.set_font("Helvetica", "I", 7.5)
+                pdf.set_text_color(*GREY)
+                pdf.cell(0, 5, "(Hourly prediction table continued)", new_x="LMARGIN", new_y="NEXT")
+                pdf.ln(1)
+                pdf.table_header(cols, color=TEAL)
+
+            hr   = str(row.get("Hour", row.get("hour", "?")))
+            prob = row.get("Prob", row.get("prob", row.get("Sepsis Prob (%)", 0.0)))
             cat  = str(row.get("Category", row.get("category", "")))
-            alrt = row.get("Alert",    row.get("alert",    False))
+            cat  = cat.replace("⚠️", "").replace("✅", "").replace("[!]", "").replace("[OK]", "").replace("?", "").strip()
+            alrt = row.get("Alert", row.get("alert", False))
             prob_str = f"{float(prob):.2f}%" if prob != "?" else "?"
             alrt_str = "YES" if alrt else "no"
-            alrt_col = RED if alrt else GREY
-            # Draw row with alert coloring
+
+            if alrt or "ALERT" in cat.upper():
+                cat_col = RED
+                alrt_col = RED
+            elif "BORDERLINE" in cat.upper():
+                cat_col = AMBER
+                alrt_col = GREY
+            else:
+                cat_col = BLACK
+                alrt_col = GREY
+
             y_r = pdf.get_y()
             if i % 2 == 0:
                 pdf.set_fill_color(*LIGHT)
-                pdf.rect(18, y_r, 174, 6.0, style="F")
+                pdf.rect(18, y_r, 174, ROW_H, style="F")
             pdf.set_font("Helvetica", "", 8)
             pdf.set_text_color(*BLACK)
             pdf.set_xy(18, y_r)
-            pdf.cell(40, 6.0, hr,       fill=False, align="C")
-            pdf.cell(38, 6.0, prob_str, fill=False, align="C")
-            pdf.cell(58, 6.0, cat,      fill=False, align="L")
+            pdf.cell(36, ROW_H, hr,       fill=False, align="C")
+            pdf.cell(36, ROW_H, prob_str, fill=False, align="C")
+            pdf.set_text_color(*cat_col)
+            pdf.cell(64, ROW_H, cat,      fill=False, align="L")
             pdf.set_text_color(*alrt_col)
-            pdf.cell(38, 6.0, alrt_str, fill=False, align="C")
-            pdf.ln()
+            pdf.cell(38, ROW_H, alrt_str, fill=False, align="C")
+            pdf.set_y(y_r + ROW_H)
+        pdf.ln(3)
     else:
         pdf.set_font("Helvetica", "I", 8.5)
         pdf.set_text_color(*GREY)
         pdf.cell(0, 6, "Hourly prediction table not available in this report.", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
+        pdf.ln(3)
 
     # ── Section 4: Probability Timeline Chart ───────────────────────────────
-    pdf.section_heading("4.  Hourly Probability Timeline Chart", TEAL)
     if chart_png_bytes:
+        if pdf.get_y() > (pdf.h - pdf.b_margin - 65):
+            pdf.add_page()
+            pdf.set_y(20)
+        pdf.section_heading("4.  Hourly Probability Timeline Chart", TEAL)
         pdf.embed_png(
             chart_png_bytes, max_w=174,
             caption=(
@@ -447,6 +498,10 @@ def build_stage1_pdf(
             ),
         )
     else:
+        if pdf.get_y() > (pdf.h - pdf.b_margin - 25):
+            pdf.add_page()
+            pdf.set_y(20)
+        pdf.section_heading("4.  Hourly Probability Timeline Chart", TEAL)
         pdf.set_font("Helvetica", "I", 8.5)
         pdf.set_text_color(*GREY)
         pdf.cell(0, 6, "Probability timeline chart not available in this report.",
@@ -455,6 +510,9 @@ def build_stage1_pdf(
 
     # ── Section 5: Physiological Trend Summary ──────────────────────────────
     if trend_rows:
+        if pdf.get_y() > (pdf.h - pdf.b_margin - 50):
+            pdf.add_page()
+            pdf.set_y(20)
         pdf.section_heading("5.  Physiological Trend Summary", TEAL)
         pdf.set_font("Helvetica", "I", 7.5)
         pdf.set_text_color(*GREY)
@@ -470,12 +528,11 @@ def build_stage1_pdf(
         pdf.table_header(cols, color=TEAL)
         for i, row in enumerate(trend_rows):
             trend_val = _safe(str(row.get("Trend", "-")))
-            # Ensure trend text is readable
-            if "Increasing" in trend_val or "^" in trend_val:
+            if "Increasing" in trend_val:
                 trend_val = "Increasing"
-            elif "Decreasing" in trend_val or "v" in trend_val:
+            elif "Decreasing" in trend_val:
                 trend_val = "Decreasing"
-            elif "Stable" in trend_val or "->" in trend_val:
+            elif "Stable" in trend_val:
                 trend_val = "Stable"
             pdf.table_row(
                 [
@@ -489,7 +546,7 @@ def build_stage1_pdf(
                 widths, fill=(i % 2 == 0),
                 aligns=["L", "C", "C", "C", "C", "C"],
             )
-        pdf.ln(4)
+        pdf.ln(3)
     else:
         pdf.section_heading("5.  Physiological Trend Summary", TEAL)
         pdf.set_font("Helvetica", "I", 8.5)
@@ -498,58 +555,83 @@ def build_stage1_pdf(
                  new_x="LMARGIN", new_y="NEXT")
         pdf.ln(3)
 
-    # ── Section 6: SHAP Explanation ─────────────────────────────────────────
-    pdf.section_heading("6.  SHAP Explanation -- Highest-Risk Hour", NAVY)
-    pdf.set_font("Helvetica", "", 8.5)
-    pdf.set_text_color(*BLACK)
-    pdf.multi_cell(174, 5,
-        f"SHAP (SHapley Additive exPlanations) describes which features contributed most "
-        f"to the model's prediction at Hour {peak_hour} (peak probability "
-        f"{peak_prob * 100:.1f}%). "
-        "Positive values increase the predicted sepsis probability; negative values decrease it. "
-        "SHAP describes model behaviour -- it does not prove clinical causation.")
-    pdf.ln(2)
-    if shap_png_bytes:
-        pdf.embed_png(shap_png_bytes, max_w=160,
-                      caption="Figure: Top-10 feature contributions at the highest-risk hour (SHAP values).")
-    else:
-        pdf.set_font("Helvetica", "I", 8.5)
-        pdf.set_text_color(*GREY)
+    # ── Section 6: SHAP / Feature Importance Explanation ────────────────────
+    _shap_is_real = (shap_label is None) or ("SHAP Value" in str(shap_label) and "unavailable" not in str(shap_label).lower())
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 60):
+        pdf.add_page()
+        pdf.set_y(20)
+
+    if _shap_is_real:
+        pdf.section_heading("6.  SHAP Explanation -- Highest-Risk Hour", NAVY)
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_text_color(*BLACK)
         pdf.multi_cell(174, 5,
-            "SHAP chart not available for this report. "
-            "This may occur when the XGBoost version on the deployment environment does not support "
-            "the SHAP library's tree explainer. Feature importances (gain-based) may have been shown "
-            "in the web interface instead.")
+            f"SHAP (SHapley Additive exPlanations) describes which features contributed most "
+            f"to the model's prediction at Hour {peak_hour} (peak probability "
+            f"{peak_prob * 100:.1f}%). "
+            "Positive values increase the predicted sepsis probability; negative values decrease it. "
+            "SHAP describes model behaviour -- it does not prove clinical causation.")
+        pdf.ln(2)
+        if shap_png_bytes:
+            pdf.embed_png(shap_png_bytes, max_w=160,
+                          caption="Figure: Top-10 feature contributions at highest-risk hour (SHAP values).")
+        else:
+            pdf.set_font("Helvetica", "I", 8.5)
+            pdf.set_text_color(*GREY)
+            pdf.cell(0, 5, "SHAP chart unavailable for this report.", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.section_heading("6.  Global Model Feature Importance -- SHAP Unavailable", NAVY)
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_text_color(*BLACK)
+        pdf.multi_cell(174, 5,
+            "SHAP explanation could not be computed for this session due to library version "
+            "compatibility on the host environment. The chart below displays global XGBoost "
+            "gain-based feature importances instead. These values reflect the overall predictive "
+            "importance of features across the training dataset and do NOT represent positive or "
+            "negative patient-specific contributions for this individual observation.")
+        pdf.ln(2)
+        if shap_png_bytes:
+            pdf.embed_png(shap_png_bytes, max_w=160,
+                          caption="Figure: Global model feature importance (gain-based, SHAP unavailable).")
+        else:
+            pdf.set_font("Helvetica", "I", 8.5)
+            pdf.set_text_color(*GREY)
+            pdf.cell(0, 5, "Feature importance chart unavailable for this report.", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
 
     # ── Section 7: LIME Explanation ─────────────────────────────────────────
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 60):
+        pdf.add_page()
+        pdf.set_y(20)
     pdf.section_heading("7.  LIME Explanation -- Patient-Specific", NAVY)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*BLACK)
     pdf.multi_cell(174, 5,
         "LIME (Local Interpretable Model-agnostic Explanations) approximates model behaviour "
         "around this specific patient's observation at the highest-risk hour. "
-        "Results are approximate and vary across runs. They do not prove clinical causation.")
+        "Results are approximate and do not prove clinical causation.")
     pdf.ln(2)
     if lime_png_bytes:
         pdf.embed_png(lime_png_bytes, max_w=160,
-                      caption="Figure: LIME feature contributions at the highest-risk hour.")
+                      caption="Figure: Patient-specific LIME local explanation at highest-risk hour.")
     elif lime_text:
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(*BLACK)
-        for line in lime_text.split("  "):
+        for line in lime_text.split("\n"):
             if line.strip():
-                pdf.cell(0, 5.5, line.strip(), new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(0, 5, line.strip(), new_x="LMARGIN", new_y="NEXT")
     else:
         pdf.set_font("Helvetica", "I", 8.5)
         pdf.set_text_color(*GREY)
         pdf.multi_cell(174, 5,
-            "LIME explanation not available for this report. "
-            "LIME requires the `lime` package and a prediction function. "
-            "If LIME was unavailable in the web interface, it will not appear here.")
+            "LIME explanation not available for this session. "
+            "LIME requires the `lime` package and a perturbation background distribution.")
     pdf.ln(3)
 
     # ── Section 8: Stage 2 Eligibility ──────────────────────────────────────
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 50):
+        pdf.add_page()
+        pdf.set_y(20)
     elig_color = GREEN if s2_eligible else AMBER
     pdf.section_heading("8.  Stage 2 Eligibility", elig_color)
     elig_rows = [
@@ -574,7 +656,10 @@ def build_stage1_pdf(
         pdf.key_value_row(k, v, fill=(i % 2 == 0), val_color=vc)
     pdf.ln(3)
 
-    # ── Section 9: Clinical Interpretation ──────────────────────────────────
+    # ── Section 9: Clinical Interpretation & Disclaimer ─────────────────────
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 65):
+        pdf.add_page()
+        pdf.set_y(20)
     pdf.section_heading("9.  Clinical Interpretation", NAVY)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*BLACK)
@@ -597,13 +682,17 @@ def build_stage1_pdf(
     return bytes(pdf.output())
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# STAGE 2 PDF REPORT
+# ═════════════════════════════════════════════════════════════════════════════
+
 def build_stage2_pdf(
     patient_id: str, age: str, gender: str,
     n_total_rows: int, s1_result_label: str, s1_prob,
     ref_hour: int, n_pre: int, n_early: int,
     prob_higher_risk: float, s2_thresh: float,
     risk_label: str, data_sufficient: bool, trend_data: list,
-    # New optional parameters
+    # Optional parameters
     shap_png_bytes: bytes = None,
     lime_png_bytes: bytes = None,
     lime_text: str = None,
@@ -624,10 +713,10 @@ def build_stage2_pdf(
     pdf.section_heading("1.  Stage 1 Context", TEAL)
     s1_color = RED if s1_result_label == "SEPSIS ALERT" else (AMBER if "BORDERLINE" in s1_result_label else GREY)
     ctx_rows = [
-        ("Stage 1 Classification",  s1_result_label),
-        ("Stage 1 Peak Probability", f"{s1_prob * 100:.2f}%" if s1_prob else "N/A"),
-        ("Stage 1 Reference Hour",   f"Hour {ref_hour}  (first hour crossing Stage 1 alert threshold)"),
-        ("Stage 2 Assessment Status","Completed -- risk stratification available"),
+        ("Stage 1 Classification",   s1_result_label),
+        ("Stage 1 Peak Probability",  f"{s1_prob * 100:.2f}%" if s1_prob else "N/A"),
+        ("Stage 1 Reference Hour",    f"Hour {ref_hour}  (first hour crossing Stage 1 alert threshold)"),
+        ("Stage 2 Assessment Status", "Completed -- risk stratification available"),
     ]
     for i, (k, v) in enumerate(ctx_rows):
         vc = s1_color if k == "Stage 1 Classification" else BLACK
@@ -636,19 +725,22 @@ def build_stage2_pdf(
 
     # ── Section 2: Patient / Input Information ──────────────────────────────
     pdf.section_heading("2.  Patient / Input Information", TEAL)
+    pre_hist_str = (
+        f"{n_pre} hour(s) before Stage 1 reference hour"
+        if n_pre > 0
+        else "Unavailable -- no pre-label observations (reference hour is first observation)"
+    )
+    early_post_str = f"{n_early} hour(s) from Stage 1 reference hour (Hour {ref_hour}) onward"
     pt_rows = [
         ("Patient / File ID",       patient_id),
         ("Age",                     age),
         ("Gender",                  gender),
         ("Total ICU Observations",  f"{n_total_rows} hourly rows"),
-        ("Observation Period",       obs_period if obs_period else f"Hour 1 to Hour {n_total_rows}"),
-        ("Pre-label History",        f"{n_pre} hour(s) before Stage 1 reference hour"
-                                     if n_pre > 0
-                                     else "0 hours  (reference hour is the first observation -- "
-                                          "no prior-window data available)"),
-        ("Early Post-label Obs.",   f"{n_early} hour(s) from Stage 1 reference hour onward"),
-        ("Stage 2 Input Status",     "Sufficient -- prediction completed" if data_sufficient
-                                     else "Insufficient -- missing pre-label or post-label data"),
+        ("Observation Period",      obs_period if obs_period else f"Hour 1 to Hour {n_total_rows}"),
+        ("Pre-label History",       pre_hist_str),
+        ("Early Post-label Obs.",   early_post_str),
+        ("Stage 2 Input Status",    "Sufficient -- prediction completed" if data_sufficient
+                                    else "Insufficient -- missing pre-label or post-label data"),
     ]
     for i, (k, v) in enumerate(pt_rows):
         pdf.key_value_row(k, v, fill=(i % 2 == 0))
@@ -670,8 +762,8 @@ def build_stage2_pdf(
         f"The Stage 1 reference hour (Hour {ref_hour}) is the first ICU hour at which the "
         f"Stage 1 model's predicted sepsis probability crossed the Sepsis Alert threshold (0.143). "
         f"Stage 2 uses this reference hour to define two temporal windows: "
-        f"(a) pre-label historical window -- the {n_pre} hour(s) before Hour {ref_hour} -- "
-        f"and (b) early post-label window -- the {n_early} hour(s) from Hour {ref_hour} onward. "
+        f"(a) pre-label historical window -- {n_pre} hour(s) before Hour {ref_hour} -- "
+        f"and (b) early post-label window -- {n_early} hour(s) from Hour {ref_hour} onward. "
         f"Patient-level aggregate features are computed from these windows."
     )
     if n_pre == 0:
@@ -679,14 +771,21 @@ def build_stage2_pdf(
         pdf.set_font("Helvetica", "I", 8)
         pdf.set_text_color(*AMBER)
         pdf.multi_cell(174, 4.5,
-            "Note: The pre-label window contains zero observations because the Stage 1 reference "
-            "hour (Hour " + str(ref_hour) + ") coincides with or precedes the first uploaded "
-            "observation. Pre-label means are therefore not available and have been imputed. "
-            "This limits the reliability of Stage 2 features derived from the pre-label window.")
+            f"Clarification on pre-label history: The pre-label window contains 0 observations "
+            f"because the Stage 1 reference hour (Hour {ref_hour}) is the patient's first recorded "
+            f"ICU observation. Raw pre-label statistics and trend slopes are unavailable. "
+            f"The Stage 2 model uses values imputed from the training distribution for pre-label "
+            f"features; however, imputation does not recreate missing clinical history and may limit "
+            f"the reliability of pre-label feature representations.")
         pdf.set_text_color(*BLACK)
     pdf.ln(3)
 
     # ── Section 4: Stage 2 Risk Result ─────────────────────────────────────
+    # Keep Section 4 heading + result badge + prediction rows together
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 82):
+        pdf.add_page()
+        pdf.set_y(20)
+
     pdf.section_heading("4.  Stage 2 Risk Stratification Result", NAVY)
     pdf.result_badge(
         label=risk_label,
@@ -709,6 +808,9 @@ def build_stage2_pdf(
     pdf.ln(3)
 
     # ── Section 5: Physiological Trend Summary ──────────────────────────────
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 48):
+        pdf.add_page()
+        pdf.set_y(20)
     pdf.section_heading("5.  Physiological Trend Summary", TEAL)
     pdf.set_font("Helvetica", "I", 7.5)
     pdf.set_text_color(*GREY)
@@ -719,40 +821,48 @@ def build_stage2_pdf(
     pdf.ln(1)
     if trend_data:
         cols = [
-            ("Parameter",   52), ("Pre Mean",  28), ("Post Mean", 28),
-            ("Change",      25), ("Trend",     41),
+            ("Parameter",   52), ("Pre Mean",  30), ("Post Mean", 26),
+            ("Change",      24), ("Trend",     42),
         ]
         widths = [c[1] for c in cols]
         pdf.table_header(cols, color=TEAL)
         for i, row in enumerate(trend_data):
             pm_raw = row.get("Pre-label Mean", "-")
             em_raw = row.get("Early Post-label Mean", "-")
-            # Show "N/A" instead of "-" when pre-label window is empty
-            pm_str = "N/A (no pre-label data)" if (pm_raw in ("-", "--", "", None) and n_pre == 0) \
-                     else str(pm_raw) if pm_raw not in ("-", "--", "", None) else "-"
-            try:
-                pm_f = float(pm_raw) if pm_raw not in ("-", "--", "", None) else None
-                em_f = float(em_raw) if em_raw not in ("-", "--", "", None) else None
-                change = f"{(em_f - pm_f):+.2f}" if (pm_f is not None and em_f is not None) else "-"
-            except Exception:
-                change = "-"
-            trend_val = _safe(str(row.get("Trend", "-")))
-            if "Increasing" in trend_val or "^" in trend_val:
-                trend_val = "Increasing"
-            elif "Decreasing" in trend_val or "v" in trend_val:
-                trend_val = "Decreasing"
-            elif "Stable" in trend_val or "->" in trend_val:
-                trend_val = "Stable"
-            elif trend_val in ("-", "--"):
-                trend_val = "N/A"
+
+            if n_pre == 0:
+                pm_str    = "Unavailable"
+                change    = "Unavailable"
+                trend_val = "Unavailable"
+            else:
+                pm_str = str(pm_raw) if pm_raw not in ("-", "--", "", None) else "Unavailable"
+                try:
+                    pm_f = float(pm_raw) if pm_raw not in ("-", "--", "", None) else None
+                    em_f = float(em_raw) if em_raw not in ("-", "--", "", None) else None
+                    change = f"{(em_f - pm_f):+.2f}" if (pm_f is not None and em_f is not None) else "-"
+                except Exception:
+                    change = "-"
+                trend_val = _safe(str(row.get("Trend", "-")))
+                if "Increasing" in trend_val:
+                    trend_val = "Increasing"
+                elif "Decreasing" in trend_val:
+                    trend_val = "Decreasing"
+                elif "Stable" in trend_val:
+                    trend_val = "Stable"
+
+            em_str = str(em_raw) if em_raw not in ("-", "--", "", None) else "-"
+
             pdf.table_row(
-                [row.get("Parameter", ""), pm_str,
-                 str(em_raw) if em_raw not in ("-", "--", "", None) else "-",
-                 change, trend_val],
+                [row.get("Parameter", ""), pm_str, em_str, change, trend_val],
                 widths, fill=(i % 2 == 0),
                 aligns=["L", "C", "C", "C", "C"],
             )
-        pdf.ln(4)
+        if n_pre == 0:
+            pdf.ln(1)
+            pdf.set_font("Helvetica", "I", 7.5)
+            pdf.set_text_color(*GREY)
+            pdf.cell(0, 4.5, "Note: Pre-label metrics marked 'Unavailable' as monitoring began at the reference hour. Missing features are imputed.", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
     else:
         pdf.set_font("Helvetica", "I", 8.5)
         pdf.set_text_color(*GREY)
@@ -760,7 +870,10 @@ def build_stage2_pdf(
         pdf.ln(3)
 
     # ── Section 6: SHAP Explanation ─────────────────────────────────────────
-    pdf.section_heading("6.  SHAP Explanation -- Stage 2 Prediction", NAVY)
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 60):
+        pdf.add_page()
+        pdf.set_y(20)
+    pdf.section_heading("6.  SHAP Explanation -- Stage 2 Risk Prediction", NAVY)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*BLACK)
     pdf.multi_cell(174, 5,
@@ -770,63 +883,69 @@ def build_stage2_pdf(
     pdf.ln(2)
     if shap_png_bytes:
         pdf.embed_png(shap_png_bytes, max_w=160,
-                      caption="Figure: Top feature contributions to Stage 2 risk classification (SHAP).")
+                      caption="Figure: Top patient-level feature contributions to Stage 2 risk (SHAP).")
     else:
         pdf.set_font("Helvetica", "I", 8.5)
         pdf.set_text_color(*GREY)
         pdf.multi_cell(174, 5,
-            "Stage 2 SHAP chart not available for this report. "
-            "The SHAP explanation may have been shown in the web interface. "
-            "Refer to the web application for the interactive SHAP chart.")
+            "Stage 2 SHAP explanation is unavailable for this session. "
+            "Model risk classification remains valid.")
     pdf.ln(3)
 
     # ── Section 7: LIME Explanation ─────────────────────────────────────────
-    pdf.section_heading("7.  LIME Explanation -- Stage 2 Prediction", NAVY)
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 60):
+        pdf.add_page()
+        pdf.set_y(20)
+    pdf.section_heading("7.  LIME Explanation -- Stage 2 Local Explanation", NAVY)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*BLACK)
     pdf.multi_cell(174, 5,
-        "LIME approximates the Stage 2 model's behaviour around this specific patient's "
-        "feature values. Results are approximate and do not prove clinical causation.")
+        "LIME approximates the Stage 2 model's decision boundary around this specific patient's "
+        "features. Results describe local model behaviour and do not establish clinical causation.")
     pdf.ln(2)
     if lime_png_bytes:
         pdf.embed_png(lime_png_bytes, max_w=160,
-                      caption="Figure: LIME feature contributions to Stage 2 risk classification.")
+                      caption="Figure: Patient-specific LIME feature contributions for Stage 2.")
     elif lime_text:
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(*BLACK)
-        for line in lime_text.split("  "):
+        for line in lime_text.split("\n"):
             if line.strip():
-                pdf.cell(0, 5.5, line.strip(), new_x="LMARGIN", new_y="NEXT")
+                pdf.cell(0, 5, line.strip(), new_x="LMARGIN", new_y="NEXT")
     else:
         pdf.set_font("Helvetica", "I", 8.5)
         pdf.set_text_color(*GREY)
         pdf.multi_cell(174, 5,
-            "Stage 2 LIME explanation not available for this report. "
-            "Refer to the web application for the interactive LIME chart.")
+            "Stage 2 LIME explanation is unavailable for this session. "
+            "Model risk classification remains valid.")
     pdf.ln(3)
 
     # ── Section 8: Model Interpretation & Limitations ───────────────────────
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 55):
+        pdf.add_page()
+        pdf.set_y(20)
     pdf.section_heading("8.  Model Interpretation and Limitations", NAVY)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*BLACK)
     pdf.multi_cell(174, 5,
-        f"Stage 2 is a patient-level risk-stratification model. It does not replicate "
-        f"Stage 1 -- it uses different features, a different model, and a different target. "
-        f"The target variable (Risk_50pct) is an engineered physiological-risk proxy "
-        f"constructed from observations available AFTER the Stage 1 reference hour. "
-        f"This target was used for training and evaluation only; it is NOT a prediction of "
-        f"mortality, survival probability, or validated long-term clinical outcome. "
-        f"The model was trained and evaluated on the PhysioNet/CinC Challenge 2019 dataset. "
-        f"Stage 2 uses 65 aggregate features derived from pre-label and post-label windows "
+        f"Stage 2 is a patient-level physiological-risk stratification model. It does not replicate "
+        f"Stage 1 -- it uses 65 aggregate features derived from pre-label and post-label windows "
         f"relative to the Stage 1 reference hour. "
-        f"When the pre-label window is empty (0 observations), the corresponding features are "
-        f"imputed using the saved Stage 2 imputer -- this may reduce prediction reliability. "
-        f"All Stage 2 predictions must be reviewed alongside the full clinical record."
+        f"The target variable (Risk_50pct) is an engineered physiological-risk proxy constructed "
+        f"from observations available AFTER the reference hour. "
+        f"This model does NOT predict mortality, survival probability, or validated long-term clinical outcome. "
+        f"When the pre-label window is empty (0 observations), pre-label features are imputed using "
+        f"the saved training imputer; imputation does not recreate missing clinical history. "
+        f"All Stage 2 predictions are research decision-support outputs and require clinical interpretation."
     )
     pdf.ln(3)
     pdf.disclaimer_box()
     return bytes(pdf.output())
 
+
+# ═════════════════════════════════════════════════════════════════════════════
+# COMBINED DUAL-STAGE PDF REPORT
+# ═════════════════════════════════════════════════════════════════════════════
 
 def build_combined_pdf(
     # Stage 1 fields
@@ -839,10 +958,17 @@ def build_combined_pdf(
     ref_hour: int, n_pre: int, n_early: int,
     prob_higher_risk: float, s2_thresh: float,
     risk_label: str, s2_trend_data: list,
+    # Optional parameters
+    chart_png_bytes: bytes = None,
+    s1_shap_png_bytes: bytes = None,
+    s2_shap_png_bytes: bytes = None,
+    s1_lime_png_bytes: bytes = None,
+    s2_lime_png_bytes: bytes = None,
+    borderline_thresh: float = 0.080,
 ) -> bytes:
-    """Build combined Stage 1 + Stage 2 PDF report (existing compact format)."""
+    """Build combined Stage 1 + Stage 2 PDF report."""
     generated  = datetime.datetime.now().strftime("%Y-%m-%d  %H:%M:%S")
-    s1_color   = RED if s1_prob >= s1_thresh else (AMBER if s1_prob >= 0.08 else GREEN)
+    s1_color   = RED if s1_prob >= s1_thresh else (AMBER if s1_prob >= borderline_thresh else GREEN)
     risk_color = RED if risk_label == "HIGHER RISK" else GREEN
 
     pdf = SepsiArcPDF(
@@ -858,7 +984,7 @@ def build_combined_pdf(
         ("Patient / File ID",      patient_id),
         ("Age",                    age),
         ("Gender",                 gender),
-        ("Total ICU Observations", f"{n_rows} hours"),
+        ("Total ICU Observations", f"{n_rows} hourly rows"),
         ("Observation Period",     f"Hour {obs_start} to Hour {obs_end}"),
     ]):
         pdf.key_value_row(k, v, fill=(i % 2 == 0))
@@ -925,6 +1051,10 @@ def build_combined_pdf(
     pdf.ln(3)
 
     # 4. Stage 2
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 82):
+        pdf.add_page()
+        pdf.set_y(20)
+
     pdf.section_heading("4.  Stage 2 -- Post-Sepsis Risk Stratification", RED)
     pdf.result_badge(
         label=risk_label,
@@ -945,6 +1075,9 @@ def build_combined_pdf(
     pdf.ln(3)
 
     if s2_trend_data:
+        if pdf.get_y() > (pdf.h - pdf.b_margin - 45):
+            pdf.add_page()
+            pdf.set_y(20)
         pdf.set_font("Helvetica", "B", 8.5)
         pdf.set_text_color(*NAVY)
         pdf.cell(0, 6, "Physiological Trend Summary (Stage 2)",
@@ -955,7 +1088,7 @@ def build_combined_pdf(
                  new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         cols = [
-            ("Parameter", 52), ("Pre Mean", 28), ("Post Mean", 28),
+            ("Parameter", 52), ("Pre Mean", 30), ("Post Mean", 26),
             ("Change", 24), ("Trend", 42),
         ]
         widths = [c[1] for c in cols]
@@ -963,18 +1096,22 @@ def build_combined_pdf(
         for i, row in enumerate(s2_trend_data):
             pm_raw = row.get("Pre-label Mean", "-")
             em_raw = row.get("Early Post-label Mean", "-")
-            pm_str = "N/A" if (pm_raw in ("-", "--", "", None) and n_pre == 0) \
-                     else str(pm_raw) if pm_raw not in ("-", "--", "", None) else "-"
-            try:
-                pm_f = float(pm_raw) if pm_raw not in ("-", "--", "", None) else None
-                em_f = float(em_raw) if em_raw not in ("-", "--", "", None) else None
-                change = f"{(em_f - pm_f):+.2f}" if (pm_f is not None and em_f is not None) else "-"
-            except Exception:
-                change = "-"
-            trend_val = _safe(str(row.get("Trend", "-")))
-            if "Increasing" in trend_val: trend_val = "Increasing"
-            elif "Decreasing" in trend_val: trend_val = "Decreasing"
-            elif "Stable" in trend_val: trend_val = "Stable"
+            if n_pre == 0:
+                pm_str = "Unavailable"
+                change = "Unavailable"
+                trend_val = "Unavailable"
+            else:
+                pm_str = str(pm_raw) if pm_raw not in ("-", "--", "", None) else "Unavailable"
+                try:
+                    pm_f = float(pm_raw) if pm_raw not in ("-", "--", "", None) else None
+                    em_f = float(em_raw) if em_raw not in ("-", "--", "", None) else None
+                    change = f"{(em_f - pm_f):+.2f}" if (pm_f is not None and em_f is not None) else "-"
+                except Exception:
+                    change = "-"
+                trend_val = _safe(str(row.get("Trend", "-")))
+                if "Increasing" in trend_val: trend_val = "Increasing"
+                elif "Decreasing" in trend_val: trend_val = "Decreasing"
+                elif "Stable" in trend_val: trend_val = "Stable"
             pdf.table_row(
                 [row.get("Parameter", ""), pm_str,
                  str(em_raw) if em_raw not in ("-", "--", "", None) else "-",
@@ -984,6 +1121,9 @@ def build_combined_pdf(
         pdf.ln(3)
 
     # 5. Summary
+    if pdf.get_y() > (pdf.h - pdf.b_margin - 50):
+        pdf.add_page()
+        pdf.set_y(20)
     pdf.divider()
     pdf.section_heading("5.  Overall Model-Based Summary", NAVY)
     pdf.set_font("Helvetica", "", 8.5)

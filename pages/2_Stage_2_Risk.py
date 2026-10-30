@@ -52,6 +52,9 @@ _SUMM_PATH    = os.path.join(_root, "models", "stage2_xgb_summary.json")
 def load_stage2():
     model   = joblib.load(_MODEL_PATH)
     imputer = joblib.load(_IMPUTER_PATH)
+    # Compatibility shim: sklearn 1.6->1.8 renamed _fill_dtype to _fit_dtype
+    if not hasattr(imputer, "_fill_dtype"):
+        imputer._fill_dtype = getattr(imputer, "_fit_dtype", float)
     with open(_META_PATH) as f:
         meta = json.load(f)
     with open(_SUMM_PATH) as f:
@@ -102,7 +105,7 @@ prob_line = (f'<div style="font-size:0.78rem;color:{SLATE_700};">'
 st.markdown(f"""
 <div style="background:#fff;border:2px solid {card_border};border-radius:12px;
             padding:0.9rem 1.6rem;margin-bottom:1.2rem;display:flex;align-items:center;gap:1.5rem;">
-  <div style="font-size:2rem;">{"⚠️" if s1_positive else "⚡"}</div>
+  <div style="font-size:2rem;">{"⚠️" if s1_positive else "⚡"}</div>
   <div>
     <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:{SLATE_400};">Stage 1 Result</div>
     <div style="font-size:1rem;font-weight:800;color:{card_border};">{result_label_s1}</div>
@@ -423,7 +426,7 @@ with res_col:
 
     if patient_high:
         st.error(
-            "**⚠️ Higher Risk — Post-Sepsis Severity Indicated**\n\n"
+            "**⚠️ Higher Risk — Post-Sepsis Severity Indicated**\n\n"
             "The Stage 2 model classifies this patient as Higher Risk based on physiological "
             "patterns after the Stage 1 reference hour.\n\n"
             "**This is a model-based risk stratification, not a clinical diagnosis.**  \n"
@@ -487,7 +490,7 @@ with info_col:
         )
     else:
         st.warning(
-            "⚠️ **Input Availability: Insufficient** — "
+            "⚠️ **Input Availability: Insufficient** — "
             "Stage 2 prediction cannot be reliably generated because the required "
             "pre-label history or early post-label observations are unavailable."
         )
@@ -674,12 +677,7 @@ with st.spinner("Computing SHAP explanation..."):
         _buf_s = io.BytesIO()
         fig_s.savefig(_buf_s, format="png", dpi=120, bbox_inches="tight",
                       facecolor="white")
-        _buf_s.seek(0)
-        _b64_s = base64.b64encode(_buf_s.read()).decode()
-        st.markdown(
-            f'<img src="data:image/png;base64,{_b64_s}" style="width:100%;display:block;"/>',
-            unsafe_allow_html=True,
-        )
+        st.pyplot(fig_s, use_container_width=True)
         plt.close(fig_s)
 
     except Exception as e:
@@ -763,12 +761,7 @@ with st.spinner("Computing LIME explanation..."):
         _buf_l = io.BytesIO()
         fig_l.savefig(_buf_l, format="png", dpi=120, bbox_inches="tight",
                       facecolor="white")
-        _buf_l.seek(0)
-        _b64_l = base64.b64encode(_buf_l.read()).decode()
-        st.markdown(
-            f'<img src="data:image/png;base64,{_b64_l}" style="width:100%;display:block;"/>',
-            unsafe_allow_html=True,
-        )
+        st.pyplot(fig_l, use_container_width=True)
         plt.close(fig_l)
         st.caption("LIME describes local model behaviour — not clinical causation.")
 
@@ -858,11 +851,45 @@ try:
     _age_str2 = (f"{float(_s2_age):.0f} yrs" if _s2_age != "N/A" else "N/A")
 
     # Stage 2 PDF
-    # -- obs_period for Stage 2 PDF
+    # -- obs_period for Stage 2 PDF (computed from actual ICULOS range)
     try:
-        _s2_obs_period = f"Hour {obs_start} to Hour {obs_end}"
+        _s2_obs_start = int(raw_df["ICULOS"].min()) if "ICULOS" in raw_df.columns else 1
+        _s2_obs_end   = int(raw_df["ICULOS"].max()) if "ICULOS" in raw_df.columns else n_total_rows
+        _s2_obs_period = f"Hour {_s2_obs_start} to Hour {_s2_obs_end}"
     except Exception:
-        _s2_obs_period = None
+        _s2_obs_start = 1
+        _s2_obs_end   = n_total_rows
+        _s2_obs_period = f"Hour 1 to Hour {n_total_rows}"
+
+    # -- Retrieve Stage 2 SHAP PNG
+    _s2_shap_png = None
+    try:
+        _buf_s.seek(0)
+        _raw = _buf_s.read()
+        _s2_shap_png = _raw if _raw else None
+    except NameError:
+        _s2_shap_png = None  # SHAP failed - buffer never created
+    except Exception:
+        _s2_shap_png = None
+
+    # -- Retrieve Stage 2 LIME PNG
+    _s2_lime_png = None
+    try:
+        _buf_l.seek(0)
+        _raw2 = _buf_l.read()
+        _s2_lime_png = _raw2 if _raw2 else None
+    except NameError:
+        _s2_lime_png = None  # LIME failed - buffer never created
+    except Exception:
+        _s2_lime_png = None
+
+    # -- Retrieve Stage 2 LIME text rules
+    _s2_lime_text = None
+    try:
+        if 'lime_list' in locals() and lime_list:
+            _s2_lime_text = "\n".join([f"{f}: {v:+.4f}" for f, v in lime_list])
+    except Exception:
+        _s2_lime_text = None
 
     try:
         _s2_pdf_bytes = _build_s2_pdf(
@@ -880,12 +907,13 @@ try:
             risk_label       = risk_label,
             data_sufficient  = data_sufficient,
             trend_data       = trend_data,
-            shap_png_bytes   = None,
-            lime_text        = None,
+            shap_png_bytes   = _s2_shap_png,
+            lime_png_bytes   = _s2_lime_png,
+            lime_text        = _s2_lime_text,
             obs_period       = _s2_obs_period,
         )
     except TypeError:
-        # Fallback: old pdf_report signature (no new optional params)
+        # Fallback: old pdf_report signature
         _s2_pdf_bytes = _build_s2_pdf(
             patient_id       = _fname2,
             age              = _age_str2,
@@ -911,8 +939,8 @@ try:
     _s1_peak_hr  = st.session_state.get("s1_peak_hour", ref_hour)
     _s1_first_al = st.session_state.get("s1_first_alert_h", None)
     _s1_n_rows   = st.session_state.get("s1_n_hours", n_total_rows)
-    _s1_obs_s    = 1
-    _s1_obs_e    = _s1_n_rows
+    _s1_obs_s    = st.session_state.get("s1_obs_start", _s2_obs_start)
+    _s1_obs_e    = st.session_state.get("s1_obs_end", _s2_obs_end)
 
     # Stage 1 trend rows — inherit from session_state if Stage 1 was run first
     _s1_trend_r  = st.session_state.get("s1_trend_rows", [])
@@ -943,14 +971,14 @@ try:
     rc1, rc2 = st.columns(2)
     with rc1:
         st.download_button(
-            label="⬇️ Download Stage 2 Report (PDF)",
+            label="⬇️ Download Stage 2 Report (PDF)",
             data=_s2_pdf_bytes,
             file_name=f"SepsiArc_Stage2_Report_{_fname2}_{_ts2}.pdf",
             mime="application/pdf",
         )
     with rc2:
         st.download_button(
-            label="⬇️ Download Complete SepsiArc Report (PDF)",
+            label="⬇️ Download Complete SepsiArc Report (PDF)",
             data=_comb_pdf_bytes,
             file_name=f"SepsiArc_Complete_Report_{_fname2}_{_ts2}.pdf",
             mime="application/pdf",
