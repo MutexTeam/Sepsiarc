@@ -6,6 +6,7 @@ Updated to reflect:
 Input: PSV/CSV file upload for both stages
 """
 import os, sys
+import base64
 os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # ensure matplotlib cache is writable on Cloud
 import matplotlib
 matplotlib.use('Agg')  # must be before any other matplotlib/pyplot import
@@ -377,7 +378,10 @@ with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
     ax.spines["right"].set_visible(False)
     ax.grid(True, axis="x", alpha=0.2)
     plt.tight_layout()
-    st.pyplot(fig)
+    _buf_mi = __import__('io').BytesIO()
+    fig.savefig(_buf_mi, format='png', dpi=100, bbox_inches='tight', facecolor='white')
+    _b64_buf_mi = base64.b64encode(_buf_mi.getvalue()).decode()
+    st.image(f"data:image/png;base64,{_b64_buf_mi}")
     plt.close(fig)
     st.caption(
         "ICULOS (ICU length of stay) is the most influential feature — consistent with clinical "

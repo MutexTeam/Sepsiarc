@@ -10,6 +10,7 @@ import os, io, json, warnings, base64
 import numpy as np
 import pandas as pd
 import os, sys
+import base64
 os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # ensure matplotlib cache is writable on Cloud
 import matplotlib
 matplotlib.use('Agg')  # must be before any other matplotlib/pyplot import
@@ -587,7 +588,8 @@ ax.spines["right"].set_visible(False)
 plt.tight_layout()
 _buf1 = io.BytesIO()
 fig.savefig(_buf1, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-st.pyplot(fig)
+_b64_buf1 = base64.b64encode(_buf1.getvalue()).decode()
+st.image(f"data:image/png;base64,{_b64_buf1}")
 plt.close(fig)
 
 # True labels overlay (if available)
@@ -608,7 +610,8 @@ if "SepsisLabel" in raw_df.columns:
         plt.tight_layout()
         _buf2 = io.BytesIO()
         fig2.savefig(_buf2, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-        st.pyplot(fig2)
+        _b64_buf2 = base64.b64encode(_buf2.getvalue()).decode()
+        st.image(f"data:image/png;base64,{_b64_buf2}")
         plt.close(fig2)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -718,7 +721,8 @@ with st.spinner("Computing SHAP explanation…"):
         plt.tight_layout()
         _buf3 = io.BytesIO()
         fig3.savefig(_buf3, format="png", dpi=110, bbox_inches="tight", facecolor="white")
-        st.pyplot(fig3)
+        _b64_buf3 = base64.b64encode(_buf3.getvalue()).decode()
+        st.image(f"data:image/png;base64,{_b64_buf3}")
         plt.close(fig3)
 
         if _shap_is_real:
@@ -813,7 +817,8 @@ with st.spinner("Computing LIME explanation for Stage 1..."):
         plt.tight_layout()
         _buf_l1 = io.BytesIO()
         _fig_l1.savefig(_buf_l1, format="png", dpi=120, bbox_inches="tight", facecolor="white")
-        st.pyplot(_fig_l1)
+        _b64_buf_l1 = base64.b64encode(_buf_l1.getvalue()).decode()
+        st.image(f"data:image/png;base64,{_b64_buf_l1}")
         plt.close(_fig_l1)
         st.caption("LIME describes local model behaviour — not clinical causation.")
     except ImportError:

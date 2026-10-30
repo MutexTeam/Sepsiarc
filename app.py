@@ -4,6 +4,7 @@ Sections: Navbar · Hero · Sepsis Stats · About Project ·
           Sepsis Overview · Epidemiology · Access Modules · Footer
 """
 import os, sys
+import base64
 os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # ensure matplotlib cache is writable on Cloud
 import matplotlib
 matplotlib.use('Agg')  # must be before any other matplotlib/pyplot import
@@ -269,7 +270,8 @@ ax.tick_params(labelsize=7.5); ax.grid(True, axis="x", alpha=0.2); ax.set_xlim(0
 plt.tight_layout(pad=2.0)
 _buf_home = __import__('io').BytesIO()
 fig.savefig(_buf_home, format='png', dpi=100, bbox_inches='tight', facecolor='white')
-st.pyplot(fig)
+_b64_buf_home = base64.b64encode(_buf_home.getvalue()).decode()
+st.image(f"data:image/png;base64,{_b64_buf_home}")
 plt.close(fig)
 
 st.markdown("<br>", unsafe_allow_html=True)

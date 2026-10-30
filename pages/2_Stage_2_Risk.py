@@ -8,6 +8,7 @@ Threshold: from stage2_xgb_metadata.json (0.29)
 Access : Gated - requires Stage 1 ALERT or BORDERLINE in session_state.
 """
 import os, sys
+import base64
 os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # ensure matplotlib cache is writable on Cloud
 import matplotlib
 matplotlib.use('Agg')  # must be before any other matplotlib/pyplot import
@@ -662,7 +663,8 @@ with st.spinner("Computing SHAP explanation..."):
         _buf_s = io.BytesIO()
         fig_s.savefig(_buf_s, format="png", dpi=120, bbox_inches="tight",
                       facecolor="white")
-        st.pyplot(fig_s)
+        _b64_buf_s = base64.b64encode(_buf_s.getvalue()).decode()
+        st.image(f"data:image/png;base64,{_b64_buf_s}")
         plt.close(fig_s)
 
     except Exception as e:
@@ -745,7 +747,8 @@ with st.spinner("Computing LIME explanation..."):
         _buf_l = io.BytesIO()
         fig_l.savefig(_buf_l, format="png", dpi=120, bbox_inches="tight",
                       facecolor="white")
-        st.pyplot(fig_l)
+        _b64_buf_l = base64.b64encode(_buf_l.getvalue()).decode()
+        st.image(f"data:image/png;base64,{_b64_buf_l}")
         plt.close(fig_l)
         st.caption("LIME describes local model behaviour — not clinical causation.")
 
