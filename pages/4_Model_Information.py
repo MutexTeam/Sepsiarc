@@ -359,6 +359,7 @@ with st.expander("🔧 Stage 1 — Feature Engineering Breakdown (135 features)"
 
 # ── Stage 1 Feature Importance ─────────────────────────────────────────────
 with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
+    os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -379,7 +380,7 @@ with st.expander("📊 Stage 1 — Top Feature Importances", expanded=False):
     fig.savefig(_buf_fi, format='png', dpi=100, bbox_inches='tight', facecolor='white')
     plt.close(fig)
     _buf_fi.seek(0)
-    st.image(_buf_fi, use_container_width=True)
+    st.image(_buf_fi, width='stretch')
     st.caption(
         "ICULOS (ICU length of stay) is the most influential feature — consistent with clinical "
         "evidence that sepsis risk increases over ICU stay. Lactate, Temp, and Shock_Index "

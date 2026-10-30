@@ -10,6 +10,7 @@ import os, io, json, warnings, base64
 import numpy as np
 import pandas as pd
 import streamlit as st
+os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -591,7 +592,7 @@ _buf1 = io.BytesIO()
 fig.savefig(_buf1, format="png", dpi=110, bbox_inches="tight", facecolor="white")
 plt.close(fig)
 _buf1.seek(0)
-st.image(_buf1, use_container_width=True)
+st.image(_buf1, width='stretch')
 
 # True labels overlay (if available)
 if "SepsisLabel" in raw_df.columns:
@@ -613,7 +614,7 @@ if "SepsisLabel" in raw_df.columns:
         fig2.savefig(_buf2, format="png", dpi=110, bbox_inches="tight", facecolor="white")
         plt.close(fig2)
         _buf2.seek(0)
-        st.image(_buf2, use_container_width=True)
+        st.image(_buf2, width='stretch')
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HOUR-BY-HOUR TABLE
@@ -724,7 +725,7 @@ with st.spinner("Computing SHAP explanation…"):
         fig3.savefig(_buf3, format="png", dpi=110, bbox_inches="tight", facecolor="white")
         plt.close(fig3)
         _buf3.seek(0)
-        st.image(_buf3, use_container_width=True)
+        st.image(_buf3, width='stretch')
 
         if _shap_is_real:
             sc1, sc2 = st.columns(2)
@@ -820,7 +821,7 @@ with st.spinner("Computing LIME explanation for Stage 1..."):
         _fig_l1.savefig(_buf_l1, format="png", dpi=120, bbox_inches="tight", facecolor="white")
         plt.close(_fig_l1)
         _buf_l1.seek(0)
-        st.image(_buf_l1, use_container_width=True)
+        st.image(_buf_l1, width='stretch')
         st.caption("LIME describes local model behaviour — not clinical causation.")
     except ImportError:
         st.info("⚠️ LIME not installed. Add `lime` to requirements.txt to enable this section.")

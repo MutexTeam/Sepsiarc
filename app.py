@@ -4,6 +4,7 @@ Sections: Navbar · Hero · Sepsis Stats · About Project ·
           Sepsis Overview · Epidemiology · Access Modules · Footer
 """
 import streamlit as st
+os.environ.setdefault('MPLCONFIGDIR', '/tmp')  # fix matplotlib cache on Cloud
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -270,7 +271,7 @@ _buf_home = __import__('io').BytesIO()
 fig.savefig(_buf_home, format='png', dpi=100, bbox_inches='tight', facecolor='white')
 plt.close(fig)
 _buf_home.seek(0)
-st.image(_buf_home, use_container_width=True)
+st.image(_buf_home, width='stretch')
 
 st.markdown("<br>", unsafe_allow_html=True)
 
