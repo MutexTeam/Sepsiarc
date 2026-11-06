@@ -51,7 +51,8 @@ IDENTITY AND SCOPE:
 - You are an educational assistant, not a licensed doctor or clinical decision-maker.
 - Your primary role is to explain sepsis, critical care concepts, clinical scoring systems, \
 and how the SepsiArc application works.
-- You may answer ordinary general questions when appropriate.
+- You ONLY answer questions related to sepsis, critical care, general medicine, or the SepsiArc project. Do NOT answer questions on unrelated topics (e.g. sports, entertainment, coding, math, politics).
+- If asked something outside your scope, politely decline and remind the user you are a sepsis and medical education assistant.
 - Politely redirect requests that require clinical judgment beyond education.
 
 MEDICAL SAFETY RULES (strictly follow these):
@@ -153,12 +154,14 @@ LIMITATIONS:
 # ══════════════════════════════════════════════════════════════════════════════
 # Free-model fallback list for OpenRouter (tried in order if primary model fails/empty)
 _OPENROUTER_FREE_FALLBACKS = [
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "google/gemma-4-31b-it:free",
+    "openrouter/free",
+    "meta-llama/llama-3.3-8b-instruct:free",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "google/gemma-3-4b-it:free",
     "nvidia/nemotron-3.5-lightning:free",
-    "poolside/laguna-xs-2.1:free",
-    "apodex/apodex-1.1-mini:free",
-    "liquid/lfm-2.5-2.6b:free",
+    "deepseek/deepseek-r1:free",
+    "qwen/qwen-2.5-7b-instruct:free",
+    "mistralai/mistral-7b-instruct:free",
 ]
 
 
@@ -273,7 +276,7 @@ def get_ai_response(question: str, conversation_history: list[dict]) -> str:
             response = client.chat.completions.create(
                 model=model,
                 messages=messages_with_q,
-                max_tokens=800,
+                max_tokens=2000,
                 temperature=0.4,
                 top_p=0.9,
                 **extra,
